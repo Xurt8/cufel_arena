@@ -35,59 +35,92 @@ if not _HOLDINGS_DIR.exists():
 HOLDINGS_FILE = _THIS_DIR / "持仓分析结果.csv"
 
 # ── 持仓加载函数 ───────────────────────────────────────
-def load_holdings_from_file(filepath: Path) -> pd.DataFrame:
-    """加载持仓文件，支持 CSV/XLS/XLSX/TSV"""
-    if not filepath.exists():
+def parse_holdings_raw(raw_bytes: bytes, filename: str = "") -> pd.DataFrame:
+    """解析持仓文件原始字节，支持券商的多种导出格式"""
+    temp_path = _THIS_DIR / "_temp_upload.xls"
+    with open(temp_path, "wb") as f:
+        f.write(raw_bytes)
+
+    result = None
+
+    # 方式1: TSV/CSV 文本格式 (券商XLS导出通常是Tab分隔的文本)
+    for sep, enc in [('\t', 'gbk'), ('\t', 'gb2312'), ('\t', 'utf-8'),
+                     (',', 'gbk'), (',', 'utf-8')]:
+        try:
+            df = pd.read_csv(temp_path, sep=sep, encoding=enc, header=None)
+            if df.shape[1] >= 10:
+                result = _extract_holdings_from_df(df)
+                if result is not None:
+                    break
+        except Exception:
+            continue
+
+    # 方式2: 真正的Excel格式
+    if result is None:
+        for engine in ['openpyxl', 'xlrd']:
+            try:
+                df = pd.read_excel(temp_path, engine=engine, header=None)
+                if df.shape[1] >= 10:
+                    result = _extract_holdings_from_df(df)
+                    if result is not None:
+                        break
+            except Exception:
+                continue
+
+    temp_path.unlink(missing_ok=True)
+    return result
+
+
+def _extract_holdings_from_df(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """从原始DataFrame中提取持仓数据"""
+    # 跳过前几行（摘要行），从第一个6位代码行开始
+    start_row = None
+    for i in range(max(len(raw_df), 20)):
+        val = str(raw_df.iloc[i, 0]).strip()
+        if len(val) == 6 and val.isdigit():
+            start_row = i
+            break
+
+    if start_row is None:
         return None
 
-    try:
-        # 尝试 TSV 文本格式 (GBK 编码，Tab分隔)
-        df = pd.read_csv(filepath, sep='\t', encoding='gbk', header=None)
-        if df.shape[1] < 10:
-            return None
+    df = raw_df.iloc[start_row:].copy()
+    df.columns = ['代码', '名称', '数量', '可用', '持仓', '成本价', '当前价',
+               '市值', '盈亏', '盈亏比例', '股东账号', '持仓账号', '市场', '备注'][:df.shape[1]]
 
-        # 从第5行(索引4)开始是数据
-        df = df.iloc[4:].copy()
-        df.columns = ['代码', '名称', '数量', '可用', '持仓', '成本价', '当前价',
-                   '市值', '盈亏', '盈亏比例', '股东账号', '持仓账号', '市场', '备注'][:df.shape[1]]
+    # 过滤：代码必须是6位数字
+    df = df[df['代码'].astype(str).str.strip().str.fullmatch(r'\d{6}', na=False)].copy()
 
-        # 过滤：代码必须是6位数字
-        df['代码_str'] = df['代码'].astype(str).str.strip()
-        df = df[df['代码_str'].str.len() == 6].copy()
+    # 数值列转换
+    for col in ['数量', '成本价', '当前价', '市值', '盈亏']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(',', '').str.strip(),
+                errors='coerce').fillna(0)
 
-        # 数值列转换
-        for col in ['数量', '成本价', '当前价', '市值', '盈亏']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(
-                    df[col].astype(str).str.replace(',', '').str.strip(),
-                    errors='coerce'
-                ).fillna(0)
+    # 缺失市值用数量*当前价补
+    if df['市值'].sum() == 0:
+        df['市值'] = df['数量'] * df['当前价']
 
-        # 计算市值（如果为0则用数量*当前价）
-        if df['市值'].sum() == 0:
-            df['市值'] = df['数量'] * df['当前价']
+    df['仓位占比'] = df['市值'] / df['市值'].sum() * 100
+    return df
 
-        df['仓位占比'] = df['市值'] / df['市值'].sum() * 100
-        return df
-    except Exception as e:
-        pass
-
-    return None
 
 def load_actual_holdings():
-    """优先从XLS读取，没有则用CSV"""
-    # 先找最新的 xls/xlsx 文件
+    """从持仓截图目录自动加载最新持仓"""
     xls_dir = _HOLDINGS_DIR
     if xls_dir.exists():
-        files = sorted(xls_dir.glob("*资金股份查询.xls*"), reverse=True)
+        files = sorted(xls_dir.glob("*资金股份查询*"), reverse=True)
         if files:
-            df = load_holdings_from_file(files[0])
+            raw = files[0].read_bytes()
+            df = parse_holdings_raw(raw, files[0].name)
             if df is not None and len(df) > 0:
                 return df
 
     # 回退到 CSV
     if HOLDINGS_FILE.exists():
-        return load_holdings_from_file(HOLDINGS_FILE)
+        raw = HOLDINGS_FILE.read_bytes()
+        return parse_holdings_raw(raw, HOLDINGS_FILE.name)
     return None
 
 # ── ETF 名称映射 ───────────────────────────────────────
@@ -211,15 +244,19 @@ st.sidebar.divider()
 st.sidebar.header("📂 持仓数据")
 use_real_holdings = st.sidebar.checkbox("使用我的实际持仓", value=True,
     help="从 持仓分析结果.csv 读取；取消则显示策略建议持仓")
-uploaded_file = st.sidebar.file_uploader("更新持仓文件", type=["csv"],
-    help="上传新的持仓 CSV，会替换现有数据")
+uploaded_file = st.sidebar.file_uploader(
+    "上传券商持仓文件", type=["xls", "xlsx", "csv", "txt"],
+    help="支持券商导出的 .xls / .xlsx / .csv 格式，自动解析")
 
 # 处理上传
 if uploaded_file:
-    with open(HOLDINGS_FILE, "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    st.sidebar.success("持仓文件已更新！")
-    st.cache_data.clear()
+    df = parse_holdings_raw(uploaded_file.getvalue(), uploaded_file.name)
+    if df is not None and len(df) > 0:
+        st.session_state["holdings_df"] = df
+        st.sidebar.success(f"已解析 {len(df)} 只持仓，总市值 {df['市值'].sum()/10000:.2f}万")
+        st.cache_data.clear()
+    else:
+        st.sidebar.error("无法解析文件，请确认是券商导出的持仓表格")
 
 # ── 初始化 Agent ─────────────────────────────────────────
 with st.spinner("初始化 Agent..."):
@@ -240,7 +277,9 @@ with tab1:
         st.error(f"策略计算失败: {e}")
 
     # 获取实际持仓
-    actual_df = load_actual_holdings()
+    actual_df = st.session_state.get("holdings_df") or load_actual_holdings()
+if actual_df is not None:
+    st.session_state["holdings_df"] = actual_df
 
     # 三列布局
     if use_real_holdings and actual_df is not None:
