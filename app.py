@@ -277,8 +277,10 @@ with tab1:
         st.error(f"策略计算失败: {e}")
 
     # 获取实际持仓
-    actual_df = st.session_state.get("holdings_df") or load_actual_holdings()
-if actual_df is not None:
+    actual_df = st.session_state.get("holdings_df")
+if actual_df is None or (isinstance(actual_df, pd.DataFrame) and actual_df.empty):
+    actual_df = load_actual_holdings()
+if actual_df is not None and not actual_df.empty:
     st.session_state["holdings_df"] = actual_df
 
     # 三列布局
