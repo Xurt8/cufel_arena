@@ -26,7 +26,69 @@ from macro_driven_etf_agent import (
 )
 
 # ── 持仓文件路径 ───────────────────────────────────────
+_THIS_DIR = Path(__file__).parent
+# 如果相对路径找不到，尝试父目录的持仓截图目录
+_HOLDINGS_DIR = _THIS_DIR / "持仓截图"
+if not _HOLDINGS_DIR.exists():
+    _HOLDINGS_DIR = Path("c:/Users/xrt85/Desktop/3月22日课程资料/持仓截图")
+
 HOLDINGS_FILE = _THIS_DIR / "持仓分析结果.csv"
+
+# ── 持仓加载函数 ───────────────────────────────────────
+def load_holdings_from_file(filepath: Path) -> pd.DataFrame:
+    """加载持仓文件，支持 CSV/XLS/XLSX/TSV"""
+    if not filepath.exists():
+        return None
+
+    try:
+        # 尝试 TSV 文本格式 (GBK 编码，Tab分隔)
+        df = pd.read_csv(filepath, sep='\t', encoding='gbk', header=None)
+        if df.shape[1] < 10:
+            return None
+
+        # 从第5行(索引4)开始是数据
+        df = df.iloc[4:].copy()
+        df.columns = ['代码', '名称', '数量', '可用', '持仓', '成本价', '当前价',
+                   '市值', '盈亏', '盈亏比例', '股东账号', '持仓账号', '市场', '备注'][:df.shape[1]]
+
+        # 过滤：代码必须是6位数字
+        df['代码_str'] = df['代码'].astype(str).str.strip()
+        df = df[df['代码_str'].str.len() == 6].copy()
+
+        # 数值列转换
+        for col in ['数量', '成本价', '当前价', '市值', '盈亏']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(
+                    df[col].astype(str).str.replace(',', '').str.strip(),
+                    errors='coerce'
+                ).fillna(0)
+
+        # 计算市值（如果为0则用数量*当前价）
+        if df['市值'].sum() == 0:
+            df['市值'] = df['数量'] * df['当前价']
+
+        df['仓位占比'] = df['市值'] / df['市值'].sum() * 100
+        return df
+    except Exception as e:
+        pass
+
+    return None
+
+def load_actual_holdings():
+    """优先从XLS读取，没有则用CSV"""
+    # 先找最新的 xls/xlsx 文件
+    xls_dir = _HOLDINGS_DIR
+    if xls_dir.exists():
+        files = sorted(xls_dir.glob("*资金股份查询.xls*"), reverse=True)
+        if files:
+            df = load_holdings_from_file(files[0])
+            if df is not None and len(df) > 0:
+                return df
+
+    # 回退到 CSV
+    if HOLDINGS_FILE.exists():
+        return load_holdings_from_file(HOLDINGS_FILE)
+    return None
 
 # ── ETF 名称映射 ───────────────────────────────────────
 ETF_NAMES = {
@@ -90,16 +152,6 @@ def fetch_date_range():
 def init_agent():
     agent = MacroDrivenETFAgent(use_llm=False)
     return agent
-
-# ── 读取实际持仓 ───────────────────────────────────────
-def load_actual_holdings():
-    """加载用户实际持仓"""
-    if not HOLDINGS_FILE.exists():
-        return None
-    df = pd.read_csv(HOLDINGS_FILE)
-    df = df.dropna(subset=["代码"]).copy()
-    df["仓位占比"] = pd.to_numeric(df["仓位占比"], errors="coerce").fillna(0)
-    return df
 
 # ── 回测引擎 ───────────────────────────────────────────
 def run_backtest(agent, start_date: str, end_date: str, theta: float = 1.0) -> pd.DataFrame:
