@@ -26,8 +26,7 @@ from macro_driven_etf_agent import (
 )
 
 # ── 持仓文件路径 ───────────────────────────────────────
-_THIS_DIR = Path(__file__).parent
-# 如果相对路径找不到，尝试父目录的持仓截图目录
+# _THIS_DIR 已在上面定义
 _HOLDINGS_DIR = _THIS_DIR / "持仓截图"
 if not _HOLDINGS_DIR.exists():
     _HOLDINGS_DIR = Path("c:/Users/xrt85/Desktop/3月22日课程资料/持仓截图")
@@ -43,12 +42,19 @@ def parse_holdings_raw(raw_bytes: bytes, filename: str = "") -> pd.DataFrame:
 
     result = None
 
-    # 方式1: TSV/CSV 文本格式 (券商XLS导出通常是Tab分隔的文本)
+    # 方式1: TSV/CSV 文本格式 (行内列数可能不一致，逐行读取)
     for sep, enc in [('\t', 'gbk'), ('\t', 'gb2312'), ('\t', 'utf-8'),
                      (',', 'gbk'), (',', 'utf-8')]:
         try:
-            df = pd.read_csv(temp_path, sep=sep, encoding=enc, header=None)
-            if df.shape[1] >= 10:
+            # 逐行读取，找最长列数的行作为标准
+            lines = []
+            raw_text = raw_bytes.decode(enc)
+            for line in raw_text.strip().split('\n'):
+                fields = line.split(sep)
+                lines.append(fields)
+            max_cols = max(len(r) for r in lines) if lines else 0
+            if max_cols >= 10:
+                df = pd.DataFrame(lines)
                 result = _extract_holdings_from_df(df)
                 if result is not None:
                     break
@@ -71,11 +77,21 @@ def parse_holdings_raw(raw_bytes: bytes, filename: str = "") -> pd.DataFrame:
     return result
 
 
+def _clean_cell(val) -> str:
+    """清理单元格值，去掉 =\"...\" 包裹"""
+    s = str(val).strip()
+    if s.startswith('="') and s.endswith('"'):
+        s = s[2:-1]
+    return s
+
 def _extract_holdings_from_df(raw_df: pd.DataFrame) -> pd.DataFrame:
     """从原始DataFrame中提取持仓数据"""
-    # 跳过前几行（摘要行），从第一个6位代码行开始
+    # 清理所有单元格的 =\"...\" 格式 (pandas 3.0+ Arrow后端)
+    raw_df = raw_df.map(_clean_cell).astype(str)
+
+    # 跳过前几行，从第一个6位代码行开始
     start_row = None
-    for i in range(max(len(raw_df), 20)):
+    for i in range(min(len(raw_df), 20)):
         val = str(raw_df.iloc[i, 0]).strip()
         if len(val) == 6 and val.isdigit():
             start_row = i
@@ -85,8 +101,13 @@ def _extract_holdings_from_df(raw_df: pd.DataFrame) -> pd.DataFrame:
         return None
 
     df = raw_df.iloc[start_row:].copy()
-    df.columns = ['代码', '名称', '数量', '可用', '持仓', '成本价', '当前价',
-               '市值', '盈亏', '盈亏比例', '股东账号', '持仓账号', '市场', '备注'][:df.shape[1]]
+    COLS = ['代码', '名称', '证券数量', '可卖数量', '库存数量', '成本价', '当前价',
+            '市值', '盈亏', '盈亏比例', '股东账号', '持仓账号', '市场', '备注', '备用']
+    df.columns = COLS[:df.shape[1]]
+    # 以"库存数量"为准，缺失时用"证券数量"
+    if df['库存数量'].sum() == 0:
+        df['库存数量'] = df['证券数量']
+    df['数量'] = df['库存数量']
 
     # 过滤：代码必须是6位数字
     df = df[df['代码'].astype(str).str.strip().str.fullmatch(r'\d{6}', na=False)].copy()
