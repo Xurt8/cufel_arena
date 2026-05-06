@@ -225,7 +225,7 @@ def run_backtest(agent, start_date: str, end_date: str, theta: float = 1.0) -> p
         return pd.DataFrame()
 
     codes = list(weights_df.columns)
-    prices = fetch_etf_prices(codes, start_date, end_date)
+    prices = fetch_etf_prices(codes, str(start_date), str(end_date))
     pivot = prices.pivot_table(index="date", columns="code", values="close_adj", aggfunc="last").ffill()
     aligned = weights_df.reindex(pivot.index, method="ffill")
     returns = pivot.pct_change().fillna(0)
