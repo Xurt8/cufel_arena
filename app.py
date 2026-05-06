@@ -192,6 +192,8 @@ def fetch_etf_prices(codes: list, start: str, end: str) -> pd.DataFrame:
     """
     rows = ch.execute(sql)
     df = pd.DataFrame(rows, columns=["date", "code", "close", "adj_factor"])
+    # ClickHouse Date 转为 pd.Timestamp，避免 datetime.date vs str 比较报错
+    df["date"] = pd.to_datetime(df["date"])
     df["close_adj"] = df["close"] * df["adj_factor"]
     return df
 
@@ -199,7 +201,7 @@ def fetch_etf_prices(codes: list, start: str, end: str) -> pd.DataFrame:
 def fetch_date_range():
     ch = get_clickhouse_client()
     min_d, max_d = ch.execute("SELECT min(date), max(date) FROM etf.etf_day")[0]
-    return min_d, max_d
+    return pd.to_datetime(min_d).date(), pd.to_datetime(max_d).date()
 
 # ── Agent 初始化 ───────────────────────────────────────
 @st.cache_resource
