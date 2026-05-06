@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# 虚拟环境
+venv/
+env/
+
+# 密钥 - 绝对不能提交
+.env
+
+# 大文件
+data/etf_day_with_basic_2022_2025.csv
+data/stock_daily.json
+data/stock_daily_all.csv
+data/etf_realtime_*.csv
+
+# 输出
+output/
+
+# 缓存
+cache/*.json
+
+# 系统
+.DS_Store
+Thumbs.db

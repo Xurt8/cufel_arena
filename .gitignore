@@ -1,0 +1,45 @@
+# 密钥文件 - 绝对不能提交
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 运行时数据
+cache/
+output/
+
+# 大数据文件
+*.db
+*.png
+*.jpg
+*.log
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+
+# Playwright 浏览器会话
+.playwright-mcp/
+
+# 备份旧文件
+backup_old_files/
+
+# Claude Code 项目文件
+.claude/
+
+# 生成的大型 CSV 输出
+etf_full_analysis.csv
+stock_daily_*.csv
+*分析结果*.csv
+*技术分析结果*.csv
+*综合技术分析结果*.csv
+
+# OS
+.DS_Store
+Thumbs.db
