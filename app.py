@@ -527,6 +527,14 @@ div[role="radiogroup"] label:hover { border-color: #0071e3 !important; }
 
 /* ── Checkbox ── */
 label[data-baseweb="checkbox"] { color: #1d1d1f !important; }
+
+/* ── 持仓表内小按钮：所有按钮缩小 ── */
+.st-key-btn_ .stButton button {
+    font-size: 0.65rem !important; padding: 1px 5px !important;
+    min-height: unset !important; height: auto !important;
+    line-height: 1.15 !important; border-radius: 4px !important;
+    font-weight: 500 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -624,52 +632,63 @@ with tab_portfolio:
             total_pnl = total_rt_mv - total_cost
             total_pnl_pct = (total_rt_mv / total_cost - 1) * 100 if total_cost > 0 else 0
 
-            # 紧凑居中的指标行
-            c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
-            with c1:
-                st.caption("实时总市值")
-                st.subheader(f"{total_rt_mv/10000:.1f}万")
-            with c2:
-                st.caption("总成本")
-                st.subheader(f"{total_cost/10000:.1f}万")
-            with c3:
-                st.caption("总盈亏")
-                clr = "green" if total_pnl >= 0 else "red"
-                st.markdown(f"**:{clr}[{total_pnl:+.0f}]**")
-                st.caption(f"{total_pnl_pct:+.2f}%")
-            with c4:
-                st.caption("持仓数")
-                st.subheader(f"{len(rt_data)}")
-            with c5:
-                st.caption("更新时间")
-                st.subheader(datetime.now().strftime("%H:%M:%S"))
+            # 指标卡片 + 持仓表格 — 左右布局，整体居中
+            _, outer_l, outer_r, _ = st.columns([0.5, 1.6, 3.5, 0.5])
 
-            # 可点击持仓表格
-            _, table_col, _ = st.columns([1, 3, 1])
-            with table_col:
-                # 表头
-                hc = st.columns([0.8, 1.2, 1, 1, 1.2, 1, 1])
+            with outer_l:
+                # 指标卡片框
+                st.markdown(f"""
+                <div style="background:#ffffff; border-radius:16px; padding:16px 18px;
+                     box-shadow:0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;">
+                <div>
+                    <span style="font-size:0.65rem; color:#86868b; text-transform:uppercase; letter-spacing:0.04em;">总市值</span><br>
+                    <span style="font-size:1.1rem; font-weight:700; color:#1d1d1f;">{total_rt_mv/10000:.1f}万</span>
+                </div>
+                <div>
+                    <span style="font-size:0.65rem; color:#86868b; text-transform:uppercase; letter-spacing:0.04em;">总盈亏</span><br>
+                    <span style="font-size:1.1rem; font-weight:700; color:{'#34c759' if total_pnl>=0 else '#ff3b30'};">
+                    {total_pnl:+.0f}</span>
+                    <span style="font-size:0.7rem; color:#86868b; margin-left:4px;">{total_pnl_pct:+.2f}%</span>
+                </div>
+                <div>
+                    <span style="font-size:0.65rem; color:#86868b; text-transform:uppercase; letter-spacing:0.04em;">总成本</span><br>
+                    <span style="font-size:1.1rem; font-weight:700; color:#1d1d1f;">{total_cost/10000:.1f}万</span>
+                </div>
+                <div>
+                    <span style="font-size:0.65rem; color:#86868b; text-transform:uppercase; letter-spacing:0.04em;">持仓数</span><br>
+                    <span style="font-size:1.1rem; font-weight:700; color:#1d1d1f;">{len(rt_data)}</span>
+                </div>
+                </div>
+                <div style="margin-top:8px; padding-top:8px; border-top:1px solid #f5f5f7;">
+                <span style="font-size:0.6rem; color:#86868b;">更新 {datetime.now().strftime('%H:%M:%S')}</span>
+                </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with outer_r:
+                # 紧凑表格 — 小按钮
+                hcols = st.columns([0.55, 1.1, 0.8, 0.9, 0.9, 0.8, 0.7])
                 for i, h in enumerate(["代码", "名称", "现价", "涨跌", "市值(万)", "盈亏", "盈亏%"]):
-                    hc[i].caption(h)
+                    hcols[i].caption(h)
 
                 selected_code = st.session_state.get("detail_code", None)
                 for d in rt_data:
-                    rc = st.columns([0.8, 1.2, 1, 1, 1.2, 1, 1])
-                    # 代码作为按钮
-                    if rc[0].button(d["代码"], key=f"btn_{d['代码']}", help=f"点击查看{d['代码']}详情",
-                                    type="primary" if selected_code == d["代码"] else "secondary",
-                                    use_container_width=True):
-                        if selected_code == d["代码"]:
-                            st.session_state["detail_code"] = None
-                        else:
-                            st.session_state["detail_code"] = d["代码"]
+                    rcols = st.columns([0.55, 1.1, 0.8, 0.9, 0.9, 0.8, 0.7])
+                    # 小按钮
+                    is_sel = (selected_code == d["代码"])
+                    btn_label = f"▸ {d['代码']}" if is_sel else d["代码"]
+                    if rcols[0].button(btn_label, key=f"btn_{d['代码']}",
+                                       help=f"查看{d['代码']}详情",
+                                       type="primary" if is_sel else "secondary"):
+                        st.session_state["detail_code"] = None if is_sel else d["代码"]
                         st.rerun()
-                    rc[1].caption(d["名称"])
-                    rc[2].caption(d["现价"])
-                    rc[3].caption(d["涨跌"])
-                    rc[4].caption(d["市值(万)"])
-                    rc[5].caption(d["盈亏"])
-                    rc[6].caption(d["盈亏%"])
+                    rcols[1].caption(d["名称"])
+                    rcols[2].caption(d["现价"])
+                    rcols[3].caption(d["涨跌"])
+                    rcols[4].caption(d["市值(万)"])
+                    rcols[5].caption(d["盈亏"])
+                    rcols[6].caption(d["盈亏%"])
 
             # ── 持仓详情面板 ─────────────────────────
             if selected_code and selected_code in [d["代码"] for d in rt_data]:
