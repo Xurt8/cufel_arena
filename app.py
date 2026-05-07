@@ -528,11 +528,11 @@ div[role="radiogroup"] label:hover { border-color: #0071e3 !important; }
 /* ── Checkbox ── */
 label[data-baseweb="checkbox"] { color: #1d1d1f !important; }
 
-/* ── 持仓表内小按钮：单行紧凑 ── */
+/* ── 持仓表内小按钮：单行紧凑，字号与名称一致 ── */
 .st-key-btn_ .stButton button {
-    font-size: 0.62rem !important; padding: 0 4px !important;
-    min-height: unset !important; height: 20px !important;
-    line-height: 20px !important; border-radius: 3px !important;
+    font-size: 0.7rem !important; padding: 0 5px !important;
+    min-height: unset !important; height: 22px !important;
+    line-height: 22px !important; border-radius: 3px !important;
     font-weight: 500 !important; letter-spacing: -0.01em;
 }
 
@@ -633,7 +633,7 @@ with tab_portfolio:
             total_pnl_pct = (total_rt_mv / total_cost - 1) * 100 if total_cost > 0 else 0
 
             # ── 持仓总览 + 实仓表：左卡右表 ───────────
-            card_w, table_w = st.columns([1.2, 4])
+            card_w, table_w = st.columns([0.6, 4.6])
 
             with card_w:
                 pnl_color = "#34c759" if total_pnl >= 0 else "#ff3b30"
@@ -661,7 +661,7 @@ with tab_portfolio:
                 st.caption("实仓表")
                 hcols = st.columns([0.5, 0.9, 0.7, 0.8, 0.8, 0.7, 0.65])
                 for i, h in enumerate(["代码", "名称", "现价", "涨跌", "市值(万)", "盈亏", "盈亏%"]):
-                    hcols[i].markdown(f"<span style='font-size:0.65rem;color:#86868b;'>{h}</span>", unsafe_allow_html=True)
+                    hcols[i].markdown(f"<span style='font-size:0.7rem;color:#86868b;'>{h}</span>", unsafe_allow_html=True)
 
                 selected_code = st.session_state.get("detail_code", None)
                 for d in rt_data:
