@@ -223,6 +223,7 @@ def run_backtest(agent, start_date: str, end_date: str, theta: float = 1.0) -> p
         records.append({"date": date_str, **weights})
 
     weights_df = pd.DataFrame(records).set_index("date").fillna(0)
+    weights_df.index = pd.to_datetime(weights_df.index)
     if weights_df.empty:
         return pd.DataFrame()
 
