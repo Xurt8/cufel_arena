@@ -375,40 +375,40 @@ def fetch_em_kline(code: str, klt: int = 101, limit: int = 120) -> pd.DataFrame:
 
 def calc_metrics(code: str) -> dict:
     """从ClickHouse计算波动率、60日/120日位置"""
+    pos60 = pos120 = 50
+    ann_vol = 0.0
     try:
         ch = get_clickhouse_client()
         for days, label in [(60, "pos60"), (120, "pos120")]:
+            # 用 close_adj 列（已在 fetch 阶段计算过）更方便，但这里直接用原始字段
             sql = f"""
                 SELECT max(high * adj_factor) as hh, min(low * adj_factor) as ll,
                        argMax(close * adj_factor, date) as last_close
                 FROM etf.etf_day WHERE code = '{code}'
-                  AND date >= today() - {days}
+                  AND date <= today() AND date >= today() - {days}
             """
             rows = ch.execute(sql)
             if rows and rows[0][0] is not None:
-                hh, ll, last = rows[0]
-                pos = (last - ll) / (hh - ll) * 100 if hh and hh != ll else 50
-                if label == "pos60":
-                    pos60 = pos
+                hh, ll, last = float(rows[0][0]), float(rows[0][1]), float(rows[0][2])
+                if hh > ll and last > 0:
+                    val = (last - ll) / (hh - ll) * 100
                 else:
-                    pos120 = pos
-            else:
+                    val = 50
                 if label == "pos60":
-                    pos60 = 50
+                    pos60 = val
                 else:
-                    pos120 = 50
+                    pos120 = val
 
         # 年化波动率（近60日）
         sql_vol = f"""
             SELECT stddevPop(log(close * adj_factor / lagInFrame(close * adj_factor, 1) over (order by date))) * sqrt(252)
-            FROM etf.etf_day WHERE code = '{code}' AND date >= today() - 60
+            FROM etf.etf_day WHERE code = '{code}' AND date <= today() AND date >= today() - 60
         """
         rows_v = ch.execute(sql_vol)
-        ann_vol = rows_v[0][0] * 100 if rows_v and rows_v[0][0] else 0
-
-        return {"年化波动率": ann_vol, "60日位置": pos60, "120日位置": pos120}
+        ann_vol = float(rows_v[0][0]) * 100 if rows_v and rows_v[0][0] else 0.0
     except Exception:
-        return {"年化波动率": 0, "60日位置": 50, "120日位置": 50}
+        pass
+    return {"年化波动率": ann_vol, "60日位置": pos60, "120日位置": pos120}
 
 
 # ═══════════════════════════════════════════════════════════
