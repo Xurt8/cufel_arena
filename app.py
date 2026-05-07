@@ -349,11 +349,11 @@ with st.spinner("初始化 Agent..."):
     agent = init_agent()
 
 # ═══════════════════════════════════════════════════════════
-# 第一个 Tab: 持仓分析
+# 第二个 Tab: 持仓分析
 # ═══════════════════════════════════════════════════════════
-tab1, tab_kline, tab2, tab3 = st.tabs(["📌 持仓分析", "📉 持仓K线图", "🌍 宏观指标", "📈 回测结果"])
+tab_macro, tab_portfolio, tab_kline, tab_backtest = st.tabs(["🌍 宏观指标", "📌 持仓分析", "📉 持仓K线图", "📈 回测结果"])
 
-with tab1:
+with tab_portfolio:
     # ── 实时行情条 ─────────────────────────────────────
     actual_df = st.session_state.get("holdings_df")
     if actual_df is None or (isinstance(actual_df, pd.DataFrame) and actual_df.empty):
@@ -557,7 +557,7 @@ with tab1:
 
 
 # ═══════════════════════════════════════════════════════════
-# 第二个 Tab: K线图
+# 第三个 Tab: K线图
 # ═══════════════════════════════════════════════════════════
 with tab_kline:
     st.header("📉 持仓K线图")
@@ -596,9 +596,9 @@ with tab_kline:
         st.info("请先加载持仓数据")
 
 # ═══════════════════════════════════════════════════════════
-# 第三个 Tab: 宏观指标
+# 第一个 Tab: 宏观指标
 # ═══════════════════════════════════════════════════════════
-with tab2:
+with tab_macro:
     st.header("🌍 宏观指标分析")
     try:
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -656,7 +656,7 @@ with tab2:
 # ═══════════════════════════════════════════════════════════
 # 第三个 Tab: 回测结果
 # ═══════════════════════════════════════════════════════════
-with tab3:
+with tab_backtest:
     st.header("📈 回测结果")
 
     if run_backtest_btn:
