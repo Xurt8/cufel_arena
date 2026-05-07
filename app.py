@@ -319,6 +319,98 @@ def fetch_realtime_prices(codes: list) -> dict:
         return {}
 
 
+# ── 东方财富 API ───────────────────────────────────────
+EM_HEADERS = {"Referer": "https://quote.eastmoney.com", "User-Agent": "Mozilla/5.0"}
+
+def _em_market(code: str) -> str:
+    """东方财富市场代码: 1=SH, 0=SZ"""
+    return "1" if code.startswith(("5", "6")) else "0"
+
+def fetch_em_quote(code: str) -> dict:
+    """东方财富实时行情详情（量比、换手率、盘口等）"""
+    try:
+        secid = f"{_em_market(code)}.{code}"
+        url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={secid}" \
+              f"&fields=f43,f44,f45,f46,f47,f48,f50,f55,f57,f58,f60,f116,f117,f162,f167,f168,f169,f170,f171"
+        resp = requests.get(url, headers=EM_HEADERS, timeout=5)
+        data = resp.json().get("data", {})
+        if not data:
+            return {}
+        return {
+            "名称": data.get("f58", ""), "最新价": data.get("f43", 0) / 100 if data.get("f43") else 0,
+            "今开": data.get("f46", 0) / 100 if data.get("f46") else 0,
+            "最高": data.get("f44", 0) / 100 if data.get("f44") else 0,
+            "最低": data.get("f45", 0) / 100 if data.get("f45") else 0,
+            "涨跌幅": data.get("f170", 0) / 100 if data.get("f170") else 0,
+            "成交量": data.get("f47", 0), "成交额": data.get("f48", 0),
+            "量比": data.get("f50", 0) / 100 if data.get("f50") else 0,
+            "换手率": data.get("f168", 0) / 100 if data.get("f168") else 0,
+            "总市值": data.get("f116", 0), "流通市值": data.get("f117", 0),
+            "涨速": data.get("f169", 0) / 100 if data.get("f169") else 0,
+            "60日涨跌幅": data.get("f171", 0) / 100 if data.get("f171") else 0,
+        }
+    except Exception:
+        return {}
+
+@st.cache_data(ttl=300)
+def fetch_em_kline(code: str, klt: int = 101, limit: int = 120) -> pd.DataFrame:
+    """东方财富K线: klt=1(1m),5,15,30,60,101(日),102(周),103(月)"""
+    try:
+        secid = f"{_em_market(code)}.{code}"
+        url = f"https://push2his.eastmoney.com/api/qt/stock/kline/get?secid={secid}" \
+              f"&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61" \
+              f"&klt={klt}&fqt=1&end=20500101&lmt={limit}"
+        resp = requests.get(url, headers=EM_HEADERS, timeout=10)
+        rows = resp.json().get("data", {}).get("klines", [])
+        if not rows:
+            return pd.DataFrame()
+        data = [r.split(",") for r in rows]
+        df = pd.DataFrame(data, columns=["date","open","close","high","low","vol","amount","amp","pct","chg","turn"])
+        for col in ["open","close","high","low","vol","amount","amp","pct","turn"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df["date"] = pd.to_datetime(df["date"])
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+def calc_metrics(code: str) -> dict:
+    """从ClickHouse计算波动率、60日/120日位置"""
+    try:
+        ch = get_clickhouse_client()
+        for days, label in [(60, "pos60"), (120, "pos120")]:
+            sql = f"""
+                SELECT max(high * adj_factor) as hh, min(low * adj_factor) as ll,
+                       argMax(close * adj_factor, date) as last_close
+                FROM etf.etf_day WHERE code = '{code}'
+                  AND date >= today() - {days}
+            """
+            rows = ch.execute(sql)
+            if rows and rows[0][0] is not None:
+                hh, ll, last = rows[0]
+                pos = (last - ll) / (hh - ll) * 100 if hh and hh != ll else 50
+                if label == "pos60":
+                    pos60 = pos
+                else:
+                    pos120 = pos
+            else:
+                if label == "pos60":
+                    pos60 = 50
+                else:
+                    pos120 = 50
+
+        # 年化波动率（近60日）
+        sql_vol = f"""
+            SELECT stddevPop(log(close * adj_factor / lagInFrame(close * adj_factor, 1) over (order by date))) * sqrt(252)
+            FROM etf.etf_day WHERE code = '{code}' AND date >= today() - 60
+        """
+        rows_v = ch.execute(sql_vol)
+        ann_vol = rows_v[0][0] * 100 if rows_v and rows_v[0][0] else 0
+
+        return {"年化波动率": ann_vol, "60日位置": pos60, "120日位置": pos120}
+    except Exception:
+        return {"年化波动率": 0, "60日位置": 50, "120日位置": 50}
+
+
 # ═══════════════════════════════════════════════════════════
 # Streamlit UI
 # ═══════════════════════════════════════════════════════════
@@ -436,10 +528,83 @@ with tab_portfolio:
                 st.caption("更新时间")
                 st.subheader(datetime.now().strftime("%H:%M:%S"))
 
-            # 居中表格
+            # 可点击持仓表格
             _, table_col, _ = st.columns([1, 3, 1])
             with table_col:
-                st.dataframe(pd.DataFrame(rt_data), use_container_width=True, hide_index=True)
+                # 表头
+                hc = st.columns([0.8, 1.2, 1, 1, 1.2, 1, 1])
+                for i, h in enumerate(["代码", "名称", "现价", "涨跌", "市值(万)", "盈亏", "盈亏%"]):
+                    hc[i].caption(h)
+
+                selected_code = st.session_state.get("detail_code", None)
+                for d in rt_data:
+                    rc = st.columns([0.8, 1.2, 1, 1, 1.2, 1, 1])
+                    # 代码作为按钮
+                    if rc[0].button(d["代码"], key=f"btn_{d['代码']}", help=f"点击查看{d['代码']}详情",
+                                    type="primary" if selected_code == d["代码"] else "secondary",
+                                    use_container_width=True):
+                        if selected_code == d["代码"]:
+                            st.session_state["detail_code"] = None
+                        else:
+                            st.session_state["detail_code"] = d["代码"]
+                        st.rerun()
+                    rc[1].caption(d["名称"])
+                    rc[2].caption(d["现价"])
+                    rc[3].caption(d["涨跌"])
+                    rc[4].caption(d["市值(万)"])
+                    rc[5].caption(d["盈亏"])
+                    rc[6].caption(d["盈亏%"])
+
+            # ── 持仓详情面板 ─────────────────────────
+            if selected_code and selected_code in [d["代码"] for d in rt_data]:
+                st.divider()
+                st.subheader(f"📋 {selected_code} 详情")
+
+                em_q = fetch_em_quote(selected_code)
+                metrics = calc_metrics(selected_code)
+
+                # 实时行情指标
+                mc = st.columns(6)
+                mc[0].metric("最新价", f"{em_q.get('最新价', 0):.3f}" if em_q else "—")
+                mc[1].metric("涨跌幅", f"{em_q.get('涨跌幅', 0):+.2f}%" if em_q else "—")
+                mc[2].metric("换手率", f"{em_q.get('换手率', 0):.2f}%" if em_q else "—")
+                mc[3].metric("量比", f"{em_q.get('量比', 0):.2f}" if em_q else "—")
+                mc[4].metric("年化波动率", f"{metrics.get('年化波动率', 0):.1f}%")
+                mc[5].metric("60日涨跌", f"{em_q.get('60日涨跌幅', 0):+.2f}%" if em_q else "—")
+
+                # 位置指标
+                pos_cols = st.columns(2)
+                with pos_cols[0]:
+                    p60 = metrics.get("60日位置", 50)
+                    st.caption(f"60日位置: {p60:.1f}%")
+                    st.progress(p60 / 100)
+                with pos_cols[1]:
+                    p120 = metrics.get("120日位置", 50)
+                    st.caption(f"120日位置: {p120:.1f}%")
+                    st.progress(p120 / 100)
+
+                # K线图：5日分时 / 日K / 月K
+                klt_tabs = st.radio("K线周期", ["5日分时(60m)", "日K", "月K"], horizontal=True, key=f"klt_{selected_code}")
+                klt_map = {"5日分时(60m)": (60, 5*4), "日K": (101, 90), "月K": (103, 36)}
+                klt, lmt = klt_map[klt_tabs]
+
+                kdf = fetch_em_kline(selected_code, klt=klt, limit=lmt)
+                if not kdf.empty:
+                    fig = go.Figure()
+                    fig.add_trace(go.Candlestick(
+                        x=kdf["date"], open=kdf["open"], high=kdf["high"],
+                        low=kdf["low"], close=kdf["close"],
+                        increasing_line_color="#ef5350", decreasing_line_color="#26a69a"))
+                    fig.add_trace(go.Bar(x=kdf["date"], y=kdf["vol"],
+                        name="量", marker_color="rgba(0,0,0,0.12)",
+                        yaxis="y2", opacity=0.3))
+                    fig.update_layout(
+                        title=f"{selected_code} — {klt_tabs}",
+                        height=400, margin=dict(l=5, r=5, t=30, b=5),
+                        xaxis_rangeslider_visible=False,
+                        yaxis=dict(title=""), yaxis2=dict(overlaying="y", side="right", showticklabels=False),
+                        showlegend=False, template="plotly_white")
+                    st.plotly_chart(fig, use_container_width=True)
 
         if auto_refresh:
             time.sleep(3)
