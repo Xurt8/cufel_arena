@@ -231,7 +231,19 @@ def init_agent():
     return agent
 
 # ── 回测引擎 ───────────────────────────────────────────
+def _calc_nav(weights_df: pd.DataFrame, start_date: str, end_date: str) -> pd.DataFrame:
+    """根据权重DataFrame计算净值"""
+    codes = list(weights_df.columns)
+    prices = fetch_etf_prices(codes, str(start_date), str(end_date))
+    pivot = prices.pivot_table(index="date", columns="code", values="close_adj", aggfunc="last").ffill()
+    aligned = weights_df.reindex(pivot.index, method="ffill")
+    returns = pivot.pct_change().fillna(0)
+    daily_ret = (aligned * returns).sum(axis=1)
+    nav = (1 + daily_ret).cumprod()
+    return pd.DataFrame({"date": nav.index, "nav": nav.values}).set_index("date")
+
 def run_backtest(agent, start_date: str, end_date: str, theta: float = 1.0) -> pd.DataFrame:
+    """策略回测：每月动态调仓"""
     date_range = pd.date_range(start=start_date, end=end_date, freq="ME")
     records = []
     for dt in date_range:
@@ -242,20 +254,28 @@ def run_backtest(agent, start_date: str, end_date: str, theta: float = 1.0) -> p
         except Exception:
             weights = {}
         records.append({"date": date_str, **weights})
-
     weights_df = pd.DataFrame(records).set_index("date").fillna(0)
     weights_df.index = pd.to_datetime(weights_df.index)
     if weights_df.empty:
         return pd.DataFrame()
+    return _calc_nav(weights_df, start_date, end_date)
 
-    codes = list(weights_df.columns)
-    prices = fetch_etf_prices(codes, str(start_date), str(end_date))
-    pivot = prices.pivot_table(index="date", columns="code", values="close_adj", aggfunc="last").ffill()
-    aligned = weights_df.reindex(pivot.index, method="ffill")
-    returns = pivot.pct_change().fillna(0)
-    daily_ret = (aligned * returns).sum(axis=1)
-    nav = (1 + daily_ret).cumprod()
-    return pd.DataFrame({"date": nav.index, "nav": nav.values}).set_index("date")
+def run_backtest_actual(holdings_df: pd.DataFrame, start_date: str, end_date: str) -> pd.DataFrame:
+    """实盘回测：固定当前持仓权重"""
+    if holdings_df is None or len(holdings_df) == 0:
+        return pd.DataFrame()
+    total_mv = holdings_df["市值"].sum()
+    weights = {}
+    for _, row in holdings_df.iterrows():
+        code = str(row["代码"])
+        mv = float(row["数量"]) * float(row["成本价"])
+        if total_mv > 0:
+            weights[code] = mv / total_mv
+    date_range = pd.date_range(start=start_date, end=end_date, freq="ME")
+    records = [{"date": dt.strftime("%Y-%m-%d"), **weights} for dt in date_range]
+    weights_df = pd.DataFrame(records).set_index("date").fillna(0)
+    weights_df.index = pd.to_datetime(weights_df.index)
+    return _calc_nav(weights_df, start_date, end_date)
 
 
 # ── 实时行情 ───────────────────────────────────────────
@@ -320,6 +340,8 @@ theta = st.sidebar.slider("风险偏好 θ", 0.0, 2.0, 1.0, 0.1,
 
 st.sidebar.divider()
 st.sidebar.header("📋 回测设置")
+bt_mode = st.sidebar.radio("回测对象", ["策略建议持仓", "实际持仓"],
+    help="策略建议=每月动态调仓 | 实际持仓=固定当前仓位权重")
 backtest_start = st.sidebar.date_input("回测起点", value=datetime(2022, 1, 1),
     min_value=min_date, max_value=max_date)
 backtest_end = st.sidebar.date_input("回测终点", value=max_date,
@@ -662,9 +684,14 @@ with tab_backtest:
     if run_backtest_btn:
         with st.spinner(f"回测中 {backtest_start} → {backtest_end}..."):
             try:
-                bt_result = run_backtest(agent,
-                    backtest_start.strftime("%Y-%m-%d"),
-                    backtest_end.strftime("%Y-%m-%d"), theta=theta)
+                if bt_mode == "实际持仓" and actual_df is not None and len(actual_df) > 0:
+                    bt_result = run_backtest_actual(actual_df,
+                        backtest_start.strftime("%Y-%m-%d"),
+                        backtest_end.strftime("%Y-%m-%d"))
+                else:
+                    bt_result = run_backtest(agent,
+                        backtest_start.strftime("%Y-%m-%d"),
+                        backtest_end.strftime("%Y-%m-%d"), theta=theta)
 
                 if not bt_result.empty:
                     nav = bt_result["nav"]
