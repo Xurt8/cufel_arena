@@ -418,62 +418,120 @@ st.set_page_config(page_title="cufel_arena · 宏观驱动ETF", page_icon="📊"
 
 st.markdown("""
 <style>
-/* ── 全局暗色主题 ── */
-.main { background: linear-gradient(135deg, #0d1117 0%, #161b22 100%); }
-.stApp { background: transparent; }
-h1, h2, h3, h4 { color: #e6edf3 !important; font-weight: 600 !important; }
-p, span, div, label { color: #c9d1d9 !important; }
-.st-caption { color: #8b949e !important; }
+/* ── Apple 风格全局 ── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-/* ── 卡片容器 ── */
+.main { background: #f5f5f7; }
+.stApp { background: #f5f5f7; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+h1 { font-size: 2rem !important; font-weight: 700 !important; color: #1d1d1f !important; letter-spacing: -0.02em; }
+h2 { font-size: 1.4rem !important; font-weight: 600 !important; color: #1d1d1f !important; }
+h3 { font-size: 1.1rem !important; font-weight: 600 !important; color: #86868b !important; }
+p, span, div, label { color: #1d1d1f !important; }
+.st-caption { color: #86868b !important; font-size: 0.8rem !important; }
+
+/* ── 指标卡片 — Apple 风格 ── */
 div[data-testid="stMetric"] {
-    background: linear-gradient(135deg, #1c2128 0%, #22272e 100%);
-    border: 1px solid #30363d;
-    border-radius: 10px;
-    padding: 12px 16px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    background: #ffffff;
+    border: none;
+    border-radius: 18px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
+    transition: all 0.35s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
-div[data-testid="stMetric"]:hover { border-color: #58a6ff; transition: 0.3s; }
-div[data-testid="stMetric"] label { color: #8b949e !important; font-size: 0.75rem; }
+div[data-testid="stMetric"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08);
+}
+div[data-testid="stMetric"] label {
+    color: #86868b !important; font-size: 0.7rem !important;
+    font-weight: 500 !important; text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+}
 div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-    color: #e6edf3 !important; font-size: 1.3rem !important; font-weight: 700 !important;
+    color: #1d1d1f !important; font-size: 1.5rem !important;
+    font-weight: 700 !important; letter-spacing: -0.02em !important;
+}
+div[data-testid="stMetric"] div[data-testid="stMetricDelta"] {
+    color: #86868b !important; font-size: 0.85rem !important;
 }
 
 /* ── 按钮 ── */
 .stButton > button {
-    border-radius: 6px !important; font-weight: 600 !important;
-    font-size: 0.8rem !important; padding: 4px 12px !important;
-    transition: all 0.2s !important;
+    border-radius: 980px !important;
+    font-weight: 500 !important; font-size: 0.82rem !important;
+    padding: 6px 20px !important;
+    border: none !important;
+    background: #1d1d1f !important; color: #ffffff !important;
+    transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1) !important;
 }
-.stButton > button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(88,166,255,0.3); }
-
-/* ── 表格 ── */
-div[data-testid="stDataFrame"] { border-radius: 8px; overflow: hidden; }
-div[data-testid="stDataFrame"] th {
-    background: #1c2128 !important; color: #58a6ff !important;
-    font-size: 0.75rem !important; font-weight: 600 !important;
+.stButton > button:hover {
+    background: #333 !important;
+    transform: scale(1.02);
 }
 
 /* ── 侧边栏 ── */
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0d1117 0%, #161b22 100%) !important;
-    border-right: 1px solid #30363d !important;
+    background: #fafafa !important;
+    border-right: 1px solid #e8e8ed !important;
 }
 
-/* ── Tab 标签 ── */
-button[data-baseweb="tab"] { color: #8b949e !important; font-weight: 500 !important; }
-button[data-baseweb="tab"][aria-selected="true"] { color: #58a6ff !important; }
+/* ── Tab ── */
+button[data-baseweb="tab"] {
+    color: #86868b !important; font-weight: 500 !important;
+    font-size: 0.9rem !important; padding: 8px 24px !important;
+    border-radius: 12px 12px 0 0 !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: #1d1d1f !important; background: #ffffff !important;
+}
+
+/* ── 表格 ── */
+div[data-testid="stDataFrame"] {
+    border-radius: 16px; overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+div[data-testid="stDataFrame"] th {
+    background: #fafafa !important; color: #86868b !important;
+    font-size: 0.72rem !important; font-weight: 600 !important;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    border-bottom: 1px solid #e8e8ed !important; padding: 10px 16px !important;
+}
+div[data-testid="stDataFrame"] td {
+    background: #ffffff !important; padding: 12px 16px !important;
+    border-bottom: 1px solid #f5f5f7 !important;
+}
 
 /* ── Divider ── */
-hr { border-color: #30363d !important; }
+hr { border-color: #e8e8ed !important; }
 
 /* ── 进度条 ── */
-div[data-testid="stProgress"] > div { background: #21262d !important; }
-div[data-testid="stProgress"] > div > div { background: linear-gradient(90deg, #238636, #3fb950) !important; }
+div[data-testid="stProgress"] > div {
+    background: #e8e8ed !important; border-radius: 980px; height: 6px !important;
+}
+div[data-testid="stProgress"] > div > div {
+    background: #0071e3 !important; border-radius: 980px;
+}
+
+/* ── 大盘涨跌色 ── */
+.green { color: #34c759 !important; font-weight: 600; }
+.red { color: #ff3b30 !important; font-weight: 600; }
+
+/* ── Radio ── */
+div[role="radiogroup"] label {
+    background: #ffffff !important; border: 1px solid #e8e8ed !important;
+    border-radius: 980px !important; padding: 6px 18px !important;
+    font-size: 0.82rem !important; color: #1d1d1f !important;
+    transition: all 0.2s !important;
+}
+div[role="radiogroup"] label:hover { border-color: #0071e3 !important; }
+
+/* ── Checkbox ── */
+label[data-baseweb="checkbox"] { color: #1d1d1f !important; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 cufel_arena — 宏观驱动 ETF 策略")
+st.title("cufel_arena")
+st.caption("宏观驱动 ETF 策略 · Macro-Driven ETF Strategy")
 
 # ── Sidebar ──────────────────────────────────────────────
 st.sidebar.header("⚙️ 参数设置")
