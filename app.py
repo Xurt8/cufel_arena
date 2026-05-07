@@ -637,21 +637,25 @@ with tab_portfolio:
 
             with card_w:
                 pnl_color = "#34c759" if total_pnl >= 0 else "#ff3b30"
+                rows = len(rt_data)
+                # 估算卡片高度以匹配表格行数（每行约28px + 表头30px）
+                card_min_h = max(200, rows * 28 + 30)
                 st.markdown(f"""
                 <div style="background:#ffffff; border-radius:14px; padding:18px 14px;
                      box-shadow:0 1px 3px rgba(0,0,0,0.03), 0 3px 8px rgba(0,0,0,0.03);
-                     text-align:center; height:100%;">
-                <div style="font-size:0.72rem; font-weight:600; color:#1d1d1f; margin-bottom:10px;">持仓总览</div>
-                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em; margin-bottom:2px;">总市值</div>
-                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:8px;">{total_rt_mv/10000:.1f}万</div>
-                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em; margin-bottom:2px;">总成本</div>
-                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:8px;">{total_cost/10000:.1f}万</div>
-                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em; margin-bottom:2px;">总盈亏</div>
-                <div style="font-size:1.05rem; font-weight:700; color:{pnl_color}; margin-bottom:2px;">{total_pnl:+.0f}</div>
-                <div style="font-size:0.65rem; color:#86868b; margin-bottom:8px;">{total_pnl_pct:+.2f}%</div>
-                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em; margin-bottom:2px;">持仓数</div>
-                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:8px;">{len(rt_data)}</div>
-                <div style="margin-top:6px; padding-top:6px; border-top:1px solid #f5f5f7;">
+                     text-align:center; min-height:{card_min_h}px;
+                     display:flex; flex-direction:column; justify-content:center;">
+                <div style="font-size:0.72rem; font-weight:600; color:#1d1d1f; margin-bottom:12px;">持仓总览</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em;">总市值</div>
+                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:10px;">{total_rt_mv/10000:.1f}万</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em;">总成本</div>
+                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:10px;">{total_cost/10000:.1f}万</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em;">总盈亏</div>
+                <div style="font-size:1.05rem; font-weight:700; color:{pnl_color};">{total_pnl:+.0f}</div>
+                <div style="font-size:0.65rem; color:#86868b; margin-bottom:10px;">{total_pnl_pct:+.2f}%</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em;">持仓数</div>
+                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:10px;">{len(rt_data)}</div>
+                <div style="margin-top:auto; padding-top:8px; border-top:1px solid #f5f5f7;">
                 <span style="font-size:0.58rem; color:#86868b;">{datetime.now().strftime('%H:%M:%S')}</span>
                 </div>
                 </div>
