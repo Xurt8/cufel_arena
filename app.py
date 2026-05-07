@@ -336,17 +336,14 @@ tab1, tab2, tab3 = st.tabs(["📌 持仓分析", "🌍 宏观指标", "📈 回�
 
 with tab1:
     # ── 实时行情条 ─────────────────────────────────────
-    auto_refresh = st.checkbox("🔄 实时刷新 (3s)", value=False, key="auto_reload")
-    if auto_refresh or st.button("手动刷新", key="manual_reload"):
-        pass  # trigger below
-
     actual_df = st.session_state.get("holdings_df")
     if actual_df is None or (isinstance(actual_df, pd.DataFrame) and actual_df.empty):
         actual_df = load_actual_holdings()
     if actual_df is not None and not actual_df.empty:
         st.session_state["holdings_df"] = actual_df
 
-    if actual_df is not None and len(actual_df) > 0 and (auto_refresh or st.session_state.get("_last_reload")):
+    auto_refresh = st.checkbox("🔄 实时刷新 (3s)", value=False, key="auto_reload")
+    if actual_df is not None and len(actual_df) > 0:
         codes = actual_df["代码"].tolist()
         rt = fetch_realtime_prices(codes)
         if rt:
@@ -376,12 +373,30 @@ with tab1:
             total_pnl = total_rt_mv - total_cost
             total_pnl_pct = (total_rt_mv / total_cost - 1) * 100 if total_cost > 0 else 0
 
-            cols = st.columns([1, 1, 1, 1, 2])
-            cols[0].metric("实时总市值", f"{total_rt_mv/10000:.1f}万")
-            cols[1].metric("总成本", f"{total_cost/10000:.1f}万")
-            cols[2].metric("总盈亏", f"{total_pnl:+.0f}", delta=f"{total_pnl_pct:+.2f}%")
-            cols[3].metric("更新时间", datetime.now().strftime("%H:%M:%S"))
-            cols[4].dataframe(pd.DataFrame(rt_data), use_container_width=True, hide_index=True)
+            # 紧凑居中的指标行
+            c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
+            with c1:
+                st.caption("实时总市值")
+                st.subheader(f"{total_rt_mv/10000:.1f}万")
+            with c2:
+                st.caption("总成本")
+                st.subheader(f"{total_cost/10000:.1f}万")
+            with c3:
+                st.caption("总盈亏")
+                clr = "green" if total_pnl >= 0 else "red"
+                st.markdown(f"**:{clr}[{total_pnl:+.0f}]**")
+                st.caption(f"{total_pnl_pct:+.2f}%")
+            with c4:
+                st.caption("持仓数")
+                st.subheader(f"{len(rt_data)}")
+            with c5:
+                st.caption("更新时间")
+                st.subheader(datetime.now().strftime("%H:%M:%S"))
+
+            # 居中表格
+            _, table_col, _ = st.columns([1, 3, 1])
+            with table_col:
+                st.dataframe(pd.DataFrame(rt_data), use_container_width=True, hide_index=True)
 
         if auto_refresh:
             time.sleep(3)
