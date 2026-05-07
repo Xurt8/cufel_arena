@@ -632,38 +632,48 @@ with tab_portfolio:
             total_pnl = total_rt_mv - total_cost
             total_pnl_pct = (total_rt_mv / total_cost - 1) * 100 if total_cost > 0 else 0
 
-            # ── 持仓总览卡片 — 单行排布 ────────────────
-            st.markdown(f"""
-            <div style="background:#ffffff; border-radius:14px; padding:14px 20px; margin-bottom:12px;
-                 box-shadow:0 1px 3px rgba(0,0,0,0.03), 0 3px 8px rgba(0,0,0,0.03);
-                 display:flex; align-items:center; gap:28px; flex-wrap:wrap;">
-            <span style="font-size:0.72rem; font-weight:600; color:#1d1d1f; letter-spacing:-0.01em;">持仓总览</span>
-            <span style="font-size:0.6rem; color:#86868b; letter-spacing:0.04em;">总市值<span style="font-size:0.9rem; font-weight:700; color:#1d1d1f; margin-left:4px;">{total_rt_mv/10000:.1f}万</span></span>
-            <span style="font-size:0.6rem; color:#86868b; letter-spacing:0.04em;">总成本<span style="font-size:0.9rem; font-weight:700; color:#1d1d1f; margin-left:4px;">{total_cost/10000:.1f}万</span></span>
-            <span style="font-size:0.6rem; color:#86868b; letter-spacing:0.04em;">总盈亏<span style="font-size:0.9rem; font-weight:700; color:{'#34c759' if total_pnl>=0 else '#ff3b30'}; margin-left:4px;">{total_pnl:+.0f}</span><span style="font-size:0.65rem; color:#86868b;">({total_pnl_pct:+.2f}%)</span></span>
-            <span style="font-size:0.6rem; color:#86868b; letter-spacing:0.04em;">持仓<span style="font-size:0.9rem; font-weight:700; color:#1d1d1f; margin-left:4px;">{len(rt_data)}</span></span>
-            <span style="font-size:0.6rem; color:#86868b;">{datetime.now().strftime('%H:%M:%S')}</span>
-            </div>
-            """, unsafe_allow_html=True)
+            # ── 持仓总览 + 实仓表：左卡右表 ───────────
+            card_w, table_w = st.columns([1.2, 4])
 
-            # ── 实仓表 — 单倍行距 ──────────────────────
-            st.caption("实仓表")
-            hcols = st.columns([0.5, 0.9, 0.7, 0.8, 0.8, 0.7, 0.65])
-            headers = ["代码", "名称", "现价", "涨跌", "市值(万)", "盈亏", "盈亏%"]
-            for i, h in enumerate(headers):
-                hcols[i].markdown(f"<span style='font-size:0.65rem;color:#86868b;'>{h}</span>", unsafe_allow_html=True)
+            with card_w:
+                pnl_color = "#34c759" if total_pnl >= 0 else "#ff3b30"
+                st.markdown(f"""
+                <div style="background:#ffffff; border-radius:14px; padding:18px 14px;
+                     box-shadow:0 1px 3px rgba(0,0,0,0.03), 0 3px 8px rgba(0,0,0,0.03);
+                     text-align:center; height:100%;">
+                <div style="font-size:0.72rem; font-weight:600; color:#1d1d1f; margin-bottom:10px;">持仓总览</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em; margin-bottom:2px;">总市值</div>
+                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:8px;">{total_rt_mv/10000:.1f}万</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em; margin-bottom:2px;">总成本</div>
+                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:8px;">{total_cost/10000:.1f}万</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em; margin-bottom:2px;">总盈亏</div>
+                <div style="font-size:1.05rem; font-weight:700; color:{pnl_color}; margin-bottom:2px;">{total_pnl:+.0f}</div>
+                <div style="font-size:0.65rem; color:#86868b; margin-bottom:8px;">{total_pnl_pct:+.2f}%</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em; margin-bottom:2px;">持仓数</div>
+                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:8px;">{len(rt_data)}</div>
+                <div style="margin-top:6px; padding-top:6px; border-top:1px solid #f5f5f7;">
+                <span style="font-size:0.58rem; color:#86868b;">{datetime.now().strftime('%H:%M:%S')}</span>
+                </div>
+                </div>
+                """, unsafe_allow_html=True)
 
-            selected_code = st.session_state.get("detail_code", None)
-            for d in rt_data:
-                rcols = st.columns([0.5, 0.9, 0.7, 0.8, 0.8, 0.7, 0.65])
-                is_sel = (selected_code == d["代码"])
-                lbl = f"▸{d['代码']}" if is_sel else d["代码"]
-                if rcols[0].button(lbl, key=f"btn_{d['代码']}", help=f"查看{d['代码']}详情",
-                                   type="primary" if is_sel else "secondary"):
-                    st.session_state["detail_code"] = None if is_sel else d["代码"]
-                    st.rerun()
-                for j, k in enumerate(["名称", "现价", "涨跌", "市值(万)", "盈亏", "盈亏%"]):
-                    rcols[j+1].markdown(f"<span style='font-size:0.7rem;color:#1d1d1f;line-height:1;'>{d[k]}</span>", unsafe_allow_html=True)
+            with table_w:
+                st.caption("实仓表")
+                hcols = st.columns([0.5, 0.9, 0.7, 0.8, 0.8, 0.7, 0.65])
+                for i, h in enumerate(["代码", "名称", "现价", "涨跌", "市值(万)", "盈亏", "盈亏%"]):
+                    hcols[i].markdown(f"<span style='font-size:0.65rem;color:#86868b;'>{h}</span>", unsafe_allow_html=True)
+
+                selected_code = st.session_state.get("detail_code", None)
+                for d in rt_data:
+                    rcols = st.columns([0.5, 0.9, 0.7, 0.8, 0.8, 0.7, 0.65])
+                    is_sel = (selected_code == d["代码"])
+                    lbl = f"▸{d['代码']}" if is_sel else d["代码"]
+                    if rcols[0].button(lbl, key=f"btn_{d['代码']}", help=f"查看{d['代码']}详情",
+                                       type="primary" if is_sel else "secondary"):
+                        st.session_state["detail_code"] = None if is_sel else d["代码"]
+                        st.rerun()
+                    for j, k in enumerate(["名称", "现价", "涨跌", "市值(万)", "盈亏", "盈亏%"]):
+                        rcols[j+1].markdown(f"<span style='font-size:0.7rem;color:#1d1d1f;line-height:1;'>{d[k]}</span>", unsafe_allow_html=True)
 
             # ── 持仓详情面板 ─────────────────────────
             if selected_code and selected_code in [d["代码"] for d in rt_data]:
