@@ -291,9 +291,63 @@ with st.spinner("初始化 Agent..."):
 # ═══════════════════════════════════════════════════════════
 # 第一个 Tab: 持仓分析
 # ═══════════════════════════════════════════════════════════
-tab1, tab2, tab3, tab4 = st.tabs(["📌 持仓分析", "🌍 宏观指标", "📈 回测结果", "⚡ 实时监控"])
+tab1, tab2, tab3 = st.tabs(["📌 持仓分析", "🌍 宏观指标", "📈 回测结果"])
 
 with tab1:
+    # ── 实时行情条 ─────────────────────────────────────
+    auto_refresh = st.checkbox("🔄 实时刷新 (3s)", value=False, key="auto_reload")
+    if auto_refresh or st.button("手动刷新", key="manual_reload"):
+        pass  # trigger below
+
+    actual_df = st.session_state.get("holdings_df")
+    if actual_df is None or (isinstance(actual_df, pd.DataFrame) and actual_df.empty):
+        actual_df = load_actual_holdings()
+    if actual_df is not None and not actual_df.empty:
+        st.session_state["holdings_df"] = actual_df
+
+    if actual_df is not None and len(actual_df) > 0 and (auto_refresh or st.session_state.get("_last_reload")):
+        codes = actual_df["代码"].tolist()
+        rt = fetch_realtime_prices(codes)
+        if rt:
+            rt_data = []
+            total_rt_mv = 0
+            total_cost = 0
+            for _, row in actual_df.iterrows():
+                code = str(row["代码"])
+                qty = float(row["数量"])
+                cost = float(row["成本价"])
+                if code in rt:
+                    cp = rt[code]["最新价"]
+                    mv = qty * cp
+                    pnl = mv - qty * cost
+                    pnl_pct = (cp / cost - 1) * 100 if cost > 0 else 0
+                    total_rt_mv += mv
+                    total_cost += qty * cost
+                    clr = "🟢" if rt[code]["涨跌幅"] > 0 else "🔴" if rt[code]["涨跌幅"] < 0 else "⚪"
+                    rt_data.append({"代码": code, "名称": rt[code]["名称"], "持仓": int(qty),
+                        "成本": f"{cost:.3f}", "现价": f"{cp:.3f}", "涨跌": f"{clr} {rt[code]['涨跌幅']:+.2f}%",
+                        "市值(万)": f"{mv/10000:.2f}", "盈亏": f"{pnl:+.0f}", "盈亏%": f"{pnl_pct:+.2f}%"})
+                else:
+                    total_cost += qty * cost
+                    rt_data.append({"代码": code, "名称": "", "持仓": int(qty),
+                        "成本": f"{cost:.3f}", "现价": "—", "涨跌": "—",
+                        "市值(万)": "—", "盈亏": "—", "盈亏%": "—"})
+            total_pnl = total_rt_mv - total_cost
+            total_pnl_pct = (total_rt_mv / total_cost - 1) * 100 if total_cost > 0 else 0
+
+            cols = st.columns([1, 1, 1, 1, 2])
+            cols[0].metric("实时总市值", f"{total_rt_mv/10000:.1f}万")
+            cols[1].metric("总成本", f"{total_cost/10000:.1f}万")
+            cols[2].metric("总盈亏", f"{total_pnl:+.0f}", delta=f"{total_pnl_pct:+.2f}%")
+            cols[3].metric("更新时间", datetime.now().strftime("%H:%M:%S"))
+            cols[4].dataframe(pd.DataFrame(rt_data), use_container_width=True, hide_index=True)
+
+        if auto_refresh:
+            time.sleep(3)
+            st.rerun()
+
+    st.divider()
+
     # 获取策略持仓
     strategy_holdings = {}
     try:
@@ -302,12 +356,7 @@ with tab1:
     except Exception as e:
         st.error(f"策略计算失败: {e}")
 
-    # 获取实际持仓
-    actual_df = st.session_state.get("holdings_df")
-if actual_df is None or (isinstance(actual_df, pd.DataFrame) and actual_df.empty):
-    actual_df = load_actual_holdings()
-if actual_df is not None and not actual_df.empty:
-    st.session_state["holdings_df"] = actual_df
+    # actual_df 已在实时行情条加载
 
     # 三列布局
     if use_real_holdings and actual_df is not None:
@@ -577,101 +626,6 @@ def fetch_realtime_prices(codes: list) -> dict:
         return result
     except Exception as e:
         return {}
-
-# ═══════════════════════════════════════════════════════════
-# 第四个 Tab: 实时监控
-# ═══════════════════════════════════════════════════════════
-with tab4:
-    st.header("⚡ 秒级实时监控")
-
-    auto_refresh = st.checkbox("自动刷新 (3秒)", value=True)
-    refresh_btn = st.button("手动刷新")
-
-    if auto_refresh or refresh_btn:
-        st.caption(f"更新时间: {datetime.now().strftime('%H:%M:%S')}")
-
-        # 获取实际持仓
-        mon_df = st.session_state.get("holdings_df")
-        if mon_df is None:
-            mon_df = load_actual_holdings()
-
-        if mon_df is not None and len(mon_df) > 0:
-            codes = mon_df["代码"].tolist()
-            rt = fetch_realtime_prices(codes)
-
-            if rt:
-                # 构建实时数据表
-                monitor_data = []
-                total_rt_mv = 0
-                total_cost = 0
-                for _, row in mon_df.iterrows():
-                    code = str(row["代码"])
-                    qty = float(row["数量"])
-                    cost = float(row["成本价"])
-
-                    if code in rt:
-                        rp = rt[code]
-                        cur_price = rp["最新价"]
-                        mv = qty * cur_price
-                        pnl = mv - qty * cost
-                        pnl_pct = (cur_price / cost - 1) * 100 if cost > 0 else 0
-                        total_rt_mv += mv
-                        total_cost += qty * cost
-                        change_color = "🟢" if rp["涨跌幅"] > 0 else "🔴" if rp["涨跌幅"] < 0 else "⚪"
-
-                        monitor_data.append({
-                            "代码": code,
-                            "名称": rp["名称"],
-                            "持仓": int(qty),
-                            "成本价": f"{cost:.3f}",
-                            "最新价": f"{cur_price:.3f}",
-                            "涨跌": f"{change_color} {rp['涨跌幅']:+.2f}%",
-                            "市值(万)": f"{mv/10000:.2f}",
-                            "盈亏": f"{pnl:+.0f}",
-                            "盈亏%": f"{pnl_pct:+.2f}%",
-                            "最高": f"{rp['最高']:.3f}",
-                            "最低": f"{rp['最低']:.3f}",
-                            "成交量": f"{rp['成交量']}",
-                        })
-                    else:
-                        monitor_data.append({
-                            "代码": code, "名称": "", "持仓": int(qty),
-                            "成本价": f"{cost:.3f}", "最新价": "—", "涨跌": "—",
-                            "市值(万)": "—", "盈亏": "—", "盈亏%": "—",
-                            "最高": "—", "最低": "—", "成交量": "—",
-                        })
-
-                # 顶部汇总
-                total_pnl = total_rt_mv - total_cost
-                total_pnl_pct = (total_rt_mv / total_cost - 1) * 100 if total_cost > 0 else 0
-                mc1, mc2, mc3, mc4, mc5 = st.columns(5)
-                mc1.metric("总市值", f"{total_rt_mv/10000:.2f}万")
-                mc2.metric("总成本", f"{total_cost/10000:.2f}万")
-                mc3.metric("总盈亏", f"{total_pnl:+.0f}",
-                          delta=f"{total_pnl_pct:+.2f}%")
-                mc4.metric("持仓数", f"{len(monitor_data)}")
-                mc5.metric("更新时间", datetime.now().strftime("%H:%M:%S"))
-
-                # 详细表格
-                mon_table = pd.DataFrame(monitor_data)
-                st.dataframe(mon_table, use_container_width=True, hide_index=True,
-                    column_config={
-                        "涨跌": st.column_config.TextColumn("涨跌", width="small"),
-                    })
-
-                # 实时走势提示
-                gainers = sum(1 for d in monitor_data if d.get("盈亏", "—") != "—" and float(d["盈亏"]) > 0)
-                losers = sum(1 for d in monitor_data if d.get("盈亏", "—") != "—" and float(d["盈亏"]) < 0)
-                st.progress((gainers) / max(len(monitor_data), 1), text=f"🟢 {gainers} 盈利 | 🔴 {losers} 亏损")
-            else:
-                st.warning("无法获取实时行情，请检查网络")
-        else:
-            st.info("请先上传持仓文件")
-
-        # 自动刷新
-        if auto_refresh:
-            time.sleep(3)
-            st.rerun()
 
 st.divider()
 st.caption(f"数据来源: ClickHouse {CH_HOST}:{CH_PORT} | etf.etf_day ({min_date} ~ {max_date}) | 实时行情: 新浪财经")
