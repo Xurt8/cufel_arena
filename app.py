@@ -239,6 +239,47 @@ def run_backtest(agent, start_date: str, end_date: str, theta: float = 1.0) -> p
     return pd.DataFrame({"date": nav.index, "nav": nav.values}).set_index("date")
 
 
+# ── 实时行情 ───────────────────────────────────────────
+SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
+
+def get_market_prefix(code: str) -> str:
+    return "sh" if code.startswith(("5", "6")) else "sz"
+
+def fetch_realtime_prices(codes: list) -> dict:
+    symbols = [f"{get_market_prefix(c)}{c}" for c in codes]
+    url = "https://hq.sinajs.cn/list=" + ",".join(symbols)
+    try:
+        resp = requests.get(url, headers=SINA_HEADERS, timeout=5)
+        resp.encoding = "gbk"
+        result = {}
+        for line in resp.text.strip().split("\n"):
+            if '="' not in line:
+                continue
+            _, data = line.split('="', 1)
+            data = data.rstrip('";')
+            parts = data.split(",")
+            if len(parts) < 32:
+                continue
+            code = line.split("=")[0].replace("var hq_str_", "")[2:]
+            result[code] = {
+                "名称": parts[0],
+                "今开": float(parts[1]) if parts[1] else 0,
+                "昨收": float(parts[2]) if parts[2] else 0,
+                "最新价": float(parts[3]) if parts[3] else 0,
+                "最高": float(parts[4]) if parts[4] else 0,
+                "最低": float(parts[5]) if parts[5] else 0,
+                "涨跌额": float(parts[3]) - float(parts[2]) if parts[3] and parts[2] else 0,
+                "涨跌幅": (float(parts[3]) / float(parts[2]) - 1) * 100 if parts[3] and parts[2] and float(parts[2]) != 0 else 0,
+                "成交量": int(parts[8]) if parts[8] else 0,
+                "成交额": float(parts[9]) if parts[9] else 0,
+                "日期": parts[30],
+                "时间": parts[31],
+            }
+        return result
+    except Exception:
+        return {}
+
+
 # ═══════════════════════════════════════════════════════════
 # Streamlit UI
 # ═══════════════════════════════════════════════════════════
@@ -584,48 +625,6 @@ with tab3:
                 import traceback; st.code(traceback.format_exc())
     else:
         st.info("👈 在侧边栏设置回测参数后，点击「运行回测」")
-
-# ── 实时行情 ───────────────────────────────────────────
-SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
-
-def get_market_prefix(code: str) -> str:
-    """判断交易所前缀：6开头=sh，其它=sz"""
-    return "sh" if code.startswith(("5", "6")) else "sz"
-
-def fetch_realtime_prices(codes: list) -> dict:
-    """新浪实时行情，返回 {code: {name, price, change, pct, high, low, open, volume}}"""
-    symbols = [f"{get_market_prefix(c)}{c}" for c in codes]
-    url = "https://hq.sinajs.cn/list=" + ",".join(symbols)
-    try:
-        resp = requests.get(url, headers=SINA_HEADERS, timeout=5)
-        resp.encoding = "gbk"
-        result = {}
-        for line in resp.text.strip().split("\n"):
-            if '="' not in line:
-                continue
-            _, data = line.split('="', 1)
-            data = data.rstrip('";')
-            parts = data.split(",")
-            if len(parts) < 32:
-                continue
-            code = line.split("=")[0].replace("var hq_str_", "")[2:]  # 去掉 sh/sz 前缀
-            result[code] = {
-                "名称": parts[0],
-                "今开": float(parts[1]) if parts[1] else 0,
-                "昨收": float(parts[2]) if parts[2] else 0,
-                "最新价": float(parts[3]) if parts[3] else 0,
-                "最高": float(parts[4]) if parts[4] else 0,
-                "最低": float(parts[5]) if parts[5] else 0,
-                "涨跌额": float(parts[3]) - float(parts[2]) if parts[3] and parts[2] else 0,
-                "涨跌幅": (float(parts[3]) / float(parts[2]) - 1) * 100 if parts[3] and parts[2] and float(parts[2]) != 0 else 0,
-                "成交量": int(parts[8]) if parts[8] else 0,
-                "成交额": float(parts[9]) if parts[9] else 0,
-                "日期": parts[30],
-                "时间": parts[31],
-            }
-        return result
-    except Exception as e:
-        return {}
 
 st.divider()
 st.caption(f"数据来源: ClickHouse {CH_HOST}:{CH_PORT} | etf.etf_day ({min_date} ~ {max_date}) | 实时行情: 新浪财经")
