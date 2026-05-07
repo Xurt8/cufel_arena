@@ -415,6 +415,64 @@ def calc_metrics(code: str) -> dict:
 # Streamlit UI
 # ═══════════════════════════════════════════════════════════
 st.set_page_config(page_title="cufel_arena · 宏观驱动ETF", page_icon="📊", layout="wide")
+
+st.markdown("""
+<style>
+/* ── 全局暗色主题 ── */
+.main { background: linear-gradient(135deg, #0d1117 0%, #161b22 100%); }
+.stApp { background: transparent; }
+h1, h2, h3, h4 { color: #e6edf3 !important; font-weight: 600 !important; }
+p, span, div, label { color: #c9d1d9 !important; }
+.st-caption { color: #8b949e !important; }
+
+/* ── 卡片容器 ── */
+div[data-testid="stMetric"] {
+    background: linear-gradient(135deg, #1c2128 0%, #22272e 100%);
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 12px 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+div[data-testid="stMetric"]:hover { border-color: #58a6ff; transition: 0.3s; }
+div[data-testid="stMetric"] label { color: #8b949e !important; font-size: 0.75rem; }
+div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+    color: #e6edf3 !important; font-size: 1.3rem !important; font-weight: 700 !important;
+}
+
+/* ── 按钮 ── */
+.stButton > button {
+    border-radius: 6px !important; font-weight: 600 !important;
+    font-size: 0.8rem !important; padding: 4px 12px !important;
+    transition: all 0.2s !important;
+}
+.stButton > button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(88,166,255,0.3); }
+
+/* ── 表格 ── */
+div[data-testid="stDataFrame"] { border-radius: 8px; overflow: hidden; }
+div[data-testid="stDataFrame"] th {
+    background: #1c2128 !important; color: #58a6ff !important;
+    font-size: 0.75rem !important; font-weight: 600 !important;
+}
+
+/* ── 侧边栏 ── */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0d1117 0%, #161b22 100%) !important;
+    border-right: 1px solid #30363d !important;
+}
+
+/* ── Tab 标签 ── */
+button[data-baseweb="tab"] { color: #8b949e !important; font-weight: 500 !important; }
+button[data-baseweb="tab"][aria-selected="true"] { color: #58a6ff !important; }
+
+/* ── Divider ── */
+hr { border-color: #30363d !important; }
+
+/* ── 进度条 ── */
+div[data-testid="stProgress"] > div { background: #21262d !important; }
+div[data-testid="stProgress"] > div > div { background: linear-gradient(90deg, #238636, #3fb950) !important; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("📊 cufel_arena — 宏观驱动 ETF 策略")
 
 # ── Sidebar ──────────────────────────────────────────────
