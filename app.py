@@ -200,6 +200,25 @@ def fetch_etf_prices(codes: list, start: str, end: str) -> pd.DataFrame:
     return df
 
 @st.cache_data(ttl=3600)
+def fetch_kline_data(code: str, days: int = 90) -> pd.DataFrame:
+    """获取单只股票/ETF的K线数据"""
+    ch = get_clickhouse_client()
+    sql = f"""
+        SELECT date, open, high, low, close, vol, adj_factor
+        FROM etf.etf_day
+        WHERE code = '{code}'
+        ORDER BY date DESC
+        LIMIT {days}
+    """
+    rows = ch.execute(sql)
+    df = pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "vol", "adj_factor"])
+    df = df.sort_values("date").reset_index(drop=True)
+    for col in ["open", "high", "low", "close"]:
+        df[col] = df[col] * df["adj_factor"]
+    df["date"] = pd.to_datetime(df["date"])
+    return df
+
+@st.cache_data(ttl=3600)
 def fetch_date_range():
     ch = get_clickhouse_client()
     min_d, max_d = ch.execute("SELECT min(date), max(date) FROM etf.etf_day")[0]
@@ -403,6 +422,39 @@ with tab1:
             st.rerun()
 
     st.divider()
+
+    # ── K线图 ──────────────────────────────────────────
+    if actual_df is not None and len(actual_df) > 0:
+        kline_codes = actual_df["代码"].tolist()
+        st.subheader("📉 持仓K线图")
+        kline_days = st.selectbox("周期", [30, 60, 90, 180, 360], index=2,
+                                  format_func=lambda d: f"近{d}天", key="kline_period")
+        cols_k = st.columns(min(len(kline_codes), 4))
+        for i, code in enumerate(kline_codes):
+            col_idx = i % 4
+            with cols_k[col_idx]:
+                try:
+                    kdf = fetch_kline_data(code, kline_days)
+                    if len(kdf) >= 5:
+                        name = actual_df[actual_df["代码"] == code]["名称"].values[0] if len(actual_df[actual_df["代码"] == code]) > 0 else code
+                        fig = go.Figure()
+                        fig.add_trace(go.Candlestick(
+                            x=kdf["date"], open=kdf["open"], high=kdf["high"],
+                            low=kdf["low"], close=kdf["close"],
+                            name=code, increasing_line_color="#ef5350",
+                            decreasing_line_color="#26a69a"))
+                        fig.add_trace(go.Bar(x=kdf["date"], y=kdf["vol"],
+                            name="量", marker_color="rgba(0,0,0,0.15)",
+                            yaxis="y2", opacity=0.3))
+                        fig.update_layout(
+                            title=f"{name}({code})",
+                            height=280, margin=dict(l=5, r=5, t=30, b=5),
+                            xaxis_rangeslider_visible=False,
+                            yaxis=dict(title=""), yaxis2=dict(overlaying="y", side="right", showticklabels=False),
+                            showlegend=False, template="plotly_white")
+                        st.plotly_chart(fig, use_container_width=True)
+                except Exception:
+                    pass
 
     # 获取策略持仓
     strategy_holdings = {}
