@@ -351,7 +351,7 @@ with st.spinner("初始化 Agent..."):
 # ═══════════════════════════════════════════════════════════
 # 第一个 Tab: 持仓分析
 # ═══════════════════════════════════════════════════════════
-tab1, tab2, tab3 = st.tabs(["📌 持仓分析", "🌍 宏观指标", "📈 回测结果"])
+tab1, tab_kline, tab2, tab3 = st.tabs(["📌 持仓分析", "📉 持仓K线图", "🌍 宏观指标", "📈 回测结果"])
 
 with tab1:
     # ── 实时行情条 ─────────────────────────────────────
@@ -420,41 +420,6 @@ with tab1:
         if auto_refresh:
             time.sleep(3)
             st.rerun()
-
-    st.divider()
-
-    # ── K线图 ──────────────────────────────────────────
-    if actual_df is not None and len(actual_df) > 0:
-        kline_codes = actual_df["代码"].tolist()
-        st.subheader("📉 持仓K线图")
-        kline_days = st.selectbox("周期", [30, 60, 90, 180, 360], index=2,
-                                  format_func=lambda d: f"近{d}天", key="kline_period")
-        cols_k = st.columns(min(len(kline_codes), 4))
-        for i, code in enumerate(kline_codes):
-            col_idx = i % 4
-            with cols_k[col_idx]:
-                try:
-                    kdf = fetch_kline_data(code, kline_days)
-                    if len(kdf) >= 5:
-                        name = actual_df[actual_df["代码"] == code]["名称"].values[0] if len(actual_df[actual_df["代码"] == code]) > 0 else code
-                        fig = go.Figure()
-                        fig.add_trace(go.Candlestick(
-                            x=kdf["date"], open=kdf["open"], high=kdf["high"],
-                            low=kdf["low"], close=kdf["close"],
-                            name=code, increasing_line_color="#ef5350",
-                            decreasing_line_color="#26a69a"))
-                        fig.add_trace(go.Bar(x=kdf["date"], y=kdf["vol"],
-                            name="量", marker_color="rgba(0,0,0,0.15)",
-                            yaxis="y2", opacity=0.3))
-                        fig.update_layout(
-                            title=f"{name}({code})",
-                            height=280, margin=dict(l=5, r=5, t=30, b=5),
-                            xaxis_rangeslider_visible=False,
-                            yaxis=dict(title=""), yaxis2=dict(overlaying="y", side="right", showticklabels=False),
-                            showlegend=False, template="plotly_white")
-                        st.plotly_chart(fig, use_container_width=True)
-                except Exception:
-                    pass
 
     # 获取策略持仓
     strategy_holdings = {}
@@ -592,7 +557,46 @@ with tab1:
 
 
 # ═══════════════════════════════════════════════════════════
-# 第二个 Tab: 宏观指标
+# 第二个 Tab: K线图
+# ═══════════════════════════════════════════════════════════
+with tab_kline:
+    st.header("📉 持仓K线图")
+    if actual_df is not None and len(actual_df) > 0:
+        kline_codes = actual_df["代码"].tolist()
+        kline_days = st.selectbox("周期", [30, 60, 90, 180, 360], index=2,
+                                  format_func=lambda d: f"近{d}天", key="kline_period")
+        cols_k = st.columns(min(len(kline_codes), 3))
+        for i, code in enumerate(kline_codes):
+            col_idx = i % 3
+            with cols_k[col_idx]:
+                try:
+                    kdf = fetch_kline_data(code, kline_days)
+                    if len(kdf) >= 5:
+                        nm = actual_df[actual_df["代码"] == code]
+                        name = nm["名称"].values[0] if len(nm) > 0 else code
+                        fig = go.Figure()
+                        fig.add_trace(go.Candlestick(
+                            x=kdf["date"], open=kdf["open"], high=kdf["high"],
+                            low=kdf["low"], close=kdf["close"],
+                            name=code, increasing_line_color="#ef5350",
+                            decreasing_line_color="#26a69a"))
+                        fig.add_trace(go.Bar(x=kdf["date"], y=kdf["vol"],
+                            name="量", marker_color="rgba(0,0,0,0.15)",
+                            yaxis="y2", opacity=0.3))
+                        fig.update_layout(
+                            title=f"{name}({code})",
+                            height=320, margin=dict(l=5, r=5, t=35, b=5),
+                            xaxis_rangeslider_visible=False,
+                            yaxis=dict(title=""), yaxis2=dict(overlaying="y", side="right", showticklabels=False),
+                            showlegend=False, template="plotly_white")
+                        st.plotly_chart(fig, use_container_width=True)
+                except Exception:
+                    pass
+    else:
+        st.info("请先加载持仓数据")
+
+# ═══════════════════════════════════════════════════════════
+# 第三个 Tab: 宏观指标
 # ═══════════════════════════════════════════════════════════
 with tab2:
     st.header("🌍 宏观指标分析")
