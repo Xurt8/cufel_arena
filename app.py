@@ -101,7 +101,7 @@ def _extract_holdings_from_df(raw_df: pd.DataFrame) -> pd.DataFrame:
         return None
 
     df = raw_df.iloc[start_row:].copy()
-    COLS = ['代码', '名称', '证券数量', '可卖数量', '库存数量', '成本价', '当前价',
+    COLS = ['代码', '名称', '证券数量', '库存数量', '可卖数量', '成本价', '当前价',
             '市值', '盈亏', '盈亏比例', '股东账号', '持仓账号', '市场', '备注', '备用']
     df.columns = COLS[:df.shape[1]]
     # 以"库存数量"为准，缺失时用"证券数量"
