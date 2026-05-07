@@ -346,6 +346,8 @@ backtest_start = st.sidebar.date_input("回测起点", value=datetime(2022, 1, 1
     min_value=min_date, max_value=max_date)
 backtest_end = st.sidebar.date_input("回测终点", value=max_date,
     min_value=min_date, max_value=max_date)
+compare_mode = st.sidebar.checkbox("对比策略 vs 实盘", value=False,
+    help="同时运行两种回测并对比")
 run_backtest_btn = st.sidebar.button("🚀 运行回测", type="primary", use_container_width=True)
 
 st.sidebar.divider()
@@ -682,42 +684,78 @@ with tab_backtest:
     st.header("📈 回测结果")
 
     if run_backtest_btn:
-        with st.spinner(f"回测中 {backtest_start} → {backtest_end}..."):
+        bs = backtest_start.strftime("%Y-%m-%d")
+        be = backtest_end.strftime("%Y-%m-%d")
+        with st.spinner(f"回测中 {bs} → {be}..."):
             try:
-                if bt_mode == "实际持仓" and actual_df is not None and len(actual_df) > 0:
-                    bt_result = run_backtest_actual(actual_df,
-                        backtest_start.strftime("%Y-%m-%d"),
-                        backtest_end.strftime("%Y-%m-%d"))
+                # 运行回测
+                if compare_mode and actual_df is not None and len(actual_df) > 0:
+                    bt1 = run_backtest(agent, bs, be, theta=theta)
+                    bt2 = run_backtest_actual(actual_df, bs, be)
+                    results = [("策略建议", bt1, "#2196F3"), ("实际持仓", bt2, "#FF5722")]
+                elif bt_mode == "实际持仓" and actual_df is not None and len(actual_df) > 0:
+                    results = [("实际持仓", run_backtest_actual(actual_df, bs, be), "#FF5722")]
                 else:
-                    bt_result = run_backtest(agent,
-                        backtest_start.strftime("%Y-%m-%d"),
-                        backtest_end.strftime("%Y-%m-%d"), theta=theta)
+                    results = [("策略建议", run_backtest(agent, bs, be, theta=theta), "#2196F3")]
 
-                if not bt_result.empty:
-                    nav = bt_result["nav"]
-                    total_ret = (nav.iloc[-1] / nav.iloc[0] - 1) * 100
-                    years = (nav.index[-1] - nav.index[0]).days / 365.25
-                    ann_ret = ((nav.iloc[-1] / nav.iloc[0]) ** (1/years) - 1) * 100 if years > 0 else 0
-                    max_dd = ((nav - nav.cummax()) / nav.cummax()).min() * 100
-                    ret_series = nav.pct_change().dropna()
-                    sharpe = (ret_series.mean() / ret_series.std() * math.sqrt(252)) if ret_series.std() > 0 else 0
+                if all(r[1].empty for r in results):
+                    st.warning("回测结果为空")
+                else:
+                    # 合并净值曲线
+                    fig_nav = go.Figure()
+                    fig_dd = go.Figure()
+                    metrics_data = []
 
-                    m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("累计收益", f"{total_ret:.2f}%")
-                    m2.metric("年化收益", f"{ann_ret:.2f}%")
-                    m3.metric("最大回撤", f"{max_dd:.2f}%")
-                    m4.metric("夏普比率", f"{sharpe:.2f}")
+                    for label, bt, color in results:
+                        if bt.empty:
+                            continue
+                        nav = bt["nav"]
+                        dd = (nav - nav.cummax()) / nav.cummax() * 100
+                        total_ret = (nav.iloc[-1] / nav.iloc[0] - 1) * 100
+                        years = (nav.index[-1] - nav.index[0]).days / 365.25
+                        ann_ret = ((nav.iloc[-1] / nav.iloc[0]) ** (1/years) - 1) * 100 if years > 0 else 0
+                        max_dd_val = dd.min()
+                        ret_series = nav.pct_change().dropna()
+                        sharpe = (ret_series.mean() / ret_series.std() * math.sqrt(252)) if ret_series.std() > 0 else 0
 
-                    fig_nav = px.line(x=nav.index, y=nav.values, title="净值曲线")
-                    fig_nav.update_layout(height=400, margin=dict(l=10, r=10, t=30, b=10))
+                        metrics_data.append({
+                            "": label, "累计收益": f"{total_ret:.2f}%",
+                            "年化收益": f"{ann_ret:.2f}%", "最大回撤": f"{max_dd_val:.2f}%",
+                            "夏普比率": f"{sharpe:.2f}",
+                        })
+
+                        fig_nav.add_trace(go.Scatter(x=nav.index, y=nav.values,
+                            name=label, line=dict(color=color, width=2)))
+                        fig_dd.add_trace(go.Scatter(x=dd.index, y=dd.values,
+                            name=label, line=dict(color=color, width=1.5),
+                            fill="tozeroy", fillcolor=f"rgba({','.join(str(int(color[i:i+2],16)) for i in (1,3,5))},0.1)"))
+
+                    # 指标对比表
+                    if len(metrics_data) > 1:
+                        st.subheader("📊 指标对比")
+                        st.dataframe(pd.DataFrame(metrics_data), use_container_width=True, hide_index=True)
+
+                    # 单指标行（非对比模式）
+                    if len(metrics_data) == 1:
+                        d = metrics_data[0]
+                        cols = st.columns(4)
+                        cols[0].metric("累计收益", d["累计收益"])
+                        cols[1].metric("年化收益", d["年化收益"])
+                        cols[2].metric("最大回撤", d["最大回撤"])
+                        cols[3].metric("夏普比率", d["夏普比率"])
+
+                    # 净值曲线图
+                    fig_nav.update_layout(title="净值曲线对比" if compare_mode else "净值曲线",
+                        height=400, margin=dict(l=10, r=10, t=30, b=10),
+                        hovermode="x unified")
                     st.plotly_chart(fig_nav, use_container_width=True)
 
-                    dd = (nav - nav.cummax()) / nav.cummax() * 100
-                    fig_dd = px.area(x=dd.index, y=dd.values, title="回撤曲线 (%)")
-                    fig_dd.update_layout(height=250, margin=dict(l=10, r=10, t=30, b=10))
+                    # 回撤曲线图
+                    fig_dd.update_layout(title="回撤曲线对比 (%)" if compare_mode else "回撤曲线 (%)",
+                        height=280, margin=dict(l=10, r=10, t=30, b=10),
+                        hovermode="x unified")
                     st.plotly_chart(fig_dd, use_container_width=True)
-                else:
-                    st.warning("回测结果为空")
+
             except Exception as e:
                 st.error(f"回测失败: {e}")
                 import traceback; st.code(traceback.format_exc())
