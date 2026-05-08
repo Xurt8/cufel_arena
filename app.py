@@ -869,6 +869,72 @@ with tab_portfolio:
             st.dataframe(df_hold, use_container_width=True, hide_index=True)
 
 
+    # ── 交易信号区（持仓分析底部）─────────────────────
+    if use_real_holdings and actual_df is not None and strategy_holdings:
+        st.divider()
+        st.subheader("📡 QMT 交易信号")
+        signal_cols = st.columns([2, 3])
+
+        with signal_cols[0]:
+            # 宏观周期 + 信号摘要
+            try:
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                macro_data = agent.data_agent.get_macro_for_decision(date_obj)
+                analysis = agent.macro_agent.analyze(macro_data)
+                cycle = analysis.get("cycle_phase", "N/A")
+                conf = analysis.get("confidence", 0)
+                score = analysis.get("metadata", {}).get("score", "—")
+
+                st.metric("经济周期", cycle)
+                st.caption(f"置信度: {conf:.0%} | 打分: {score}")
+                st.caption(f"PMI {macro_data.pmi:.1f} | CPI {macro_data.cpi_yoy:.1f}% | M2 {macro_data.m2_yoy:.1f}%")
+
+                # 策略权重
+                st.caption("目标权重")
+                for code, w in strategy_holdings.items():
+                    st.caption(f"{ETF_NAMES.get(code, code)}: **{w*100:.1f}%**")
+            except Exception as e:
+                st.warning(f"信号生成失败: {e}")
+
+        with signal_cols[1]:
+            # 调仓计算
+            if actual_df is not None and len(actual_df) > 0:
+                total_mv = actual_df["市值"].sum()
+                trade_plan = []
+                for code, sw in strategy_holdings.items():
+                    target_mv = total_mv * sw
+                    actual_row = actual_df[actual_df["代码"] == code]
+                    if len(actual_row) > 0:
+                        cur_qty = float(actual_row["数量"].iloc[0])
+                        cur_price = float(actual_row["当前价"].iloc[0])
+                        cur_mv = cur_qty * cur_price
+                    else:
+                        cur_mv = 0
+                        cur_price = 0
+                    diff = target_mv - cur_mv
+                    if abs(diff) > 500:
+                        trade_qty = int(abs(diff) / cur_price / 100) * 100 if cur_price > 0 else 0
+                        trade_plan.append({
+                            "代码": code, "名称": ETF_NAMES.get(code, code),
+                            "操作": "买入" if diff > 0 else "卖出",
+                            "金额": f"{abs(diff):,.0f}",
+                            "约(手)": trade_qty // 100 if trade_qty > 0 else "—",
+                        })
+
+                if trade_plan:
+                    st.caption("调仓计划（可在QMT执行）")
+                    plan_df = pd.DataFrame(trade_plan)
+                    st.dataframe(plan_df, use_container_width=True, hide_index=True,
+                        column_config={"操作": st.column_config.TextColumn(width="small")})
+                    buy_total = sum(
+                        float(t["金额"].replace(",", "")) for t in trade_plan if t["操作"] == "买入")
+                    sell_total = sum(
+                        float(t["金额"].replace(",", "")) for t in trade_plan if t["操作"] == "卖出")
+                    st.caption(f"合计买入: **{buy_total:,.0f}** 元 | 卖出: **{sell_total:,.0f}** 元")
+                else:
+                    st.success("无需调仓，权重差异在容忍范围内")
+
+
 # ═══════════════════════════════════════════════════════════
 # 第三个 Tab: K线图
 # ═══════════════════════════════════════════════════════════
