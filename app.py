@@ -287,36 +287,124 @@ LLM_URL = "http://10.13.66.5:20168/v1/chat/completions"
 LLM_KEY = "sk-2025210589-fb1bf3c5"
 LLM_MODEL = "Qwen/Qwen3-Next-80B-A3B-Instruct"
 
+def _llm_call(system_prompt: str, user_prompt: str) -> str:
+    """通用 LLM 调用"""
+    r = requests.post(LLM_URL,
+        headers={"Authorization": f"Bearer {LLM_KEY}", "Content-Type": "application/json"},
+        json={"model": LLM_MODEL,
+              "messages": [{"role":"system","content":system_prompt},
+                          {"role":"user","content":user_prompt}],
+              "max_tokens": 300, "temperature": 0.4},
+        timeout=20)
+    if r.status_code == 200:
+        return r.json()["choices"][0]["message"]["content"]
+    return ""
+
 def llm_analyze_macro(pmi, cpi, ppi, m2, sf, gdp, s1m, s3m) -> dict:
-    """调用 LLM 分析宏观数据 → 返回 {cycle, confidence, analysis}"""
-    prompt = f"""你是宏观经济分析专家。根据以下指标判断当前中国经济周期阶段（复苏期/扩张期/滞胀期/衰退期）：
+    """MAS 多智能体辩论：Bull vs Bear 双向分析后综合判断"""
+    indicators = f"""PMI={pmi}, CPI同比={cpi}%, PPI同比={ppi}%, M2同比={m2}%,
+社融增量={sf}亿元, GDP当季同比={gdp}%, SHIBOR 1M/3M={s1m}/{s3m}"""
 
-- PMI：{pmi}
-- CPI 同比：{cpi}%
-- PPI 同比：{ppi}%
-- M2 同比：{m2}%
-- 社融增量（亿元）：{sf}
-- GDP 当季同比：{gdp}%
-- SHIBOR 1月/3月：{s1m}/{s3m}
+    bull_prompt = f"""你是多头分析师。基于以下宏观经济指标，尽力找出支撑股市上涨的理由：
+{indicators}
+请给出看涨判断和经济周期阶段，回复JSON：
+{{"view":"bull","cycle":"周期阶段","reason":"看涨理由","confidence":0.0到1.0}}"""
 
-回复格式（严格JSON，不要其他文字）：
-{{"cycle":"周期阶段","confidence":0.0到1.0,"analysis":"一句话分析"}}"""
+    bear_prompt = f"""你是空头分析师。基于以下宏观经济指标，尽力找出股市可能下跌的风险：
+{indicators}
+请给出看跌判断和经济周期阶段，回复JSON：
+{{"view":"bear","cycle":"周期阶段","reason":"看跌理由","risk":"主要风险","confidence":0.0到1.0}}"""
+
     try:
-        r = requests.post(LLM_URL,
-            headers={"Authorization": f"Bearer {LLM_KEY}", "Content-Type": "application/json"},
-            json={"model": LLM_MODEL, "messages": [{"role":"user","content":prompt}],
-                  "max_tokens": 200, "temperature": 0.3},
-            timeout=15)
-        if r.status_code == 200:
-            text = r.json()["choices"][0]["message"]["content"]
-            # 提取 JSON
-            import re
-            m = re.search(r'\{[^}]+\}', text)
-            if m:
-                return json.loads(m.group())
+        bull_raw = _llm_call("回复严格JSON，不要其他文字。", bull_prompt)
+        bear_raw = _llm_call("回复严格JSON，不要其他文字。", bear_prompt)
+
+        import re
+        bull = json.loads(re.search(r'\{[^{}]*\}', bull_raw).group()) if re.search(r'\{[^{}]*\}', bull_raw) else {}
+        bear = json.loads(re.search(r'\{[^{}]*\}', bear_raw).group()) if re.search(r'\{[^{}]*\}', bear_raw) else {}
+
+        if bull or bear:
+            # 综合：多头置信减空头置信，偏向高置信方
+            b_conf = bull.get("confidence", 0.5)
+            br_conf = bear.get("confidence", 0.5)
+            net = b_conf - br_conf
+            cycle = bull.get("cycle", bear.get("cycle", "N/A"))
+            conf = (b_conf + (1 - br_conf)) / 2  # 综合置信
+            analysis = f"🟢多头({bull.get('reason','')[:60]}) | 🔴空头({bear.get('reason','')[:60]})"
+            return {"cycle": cycle, "confidence": round(conf, 3),
+                    "analysis": analysis, "bull": bull, "bear": bear}
     except Exception:
         pass
     return None
+
+
+# ── Arena PostgreSQL ──────────────────────────────────
+PG_HOST = "10.13.66.5"
+PG_PORT = 20095
+PG_USER = "arena_reader"
+PG_PASSWORD = "arena_reader404"
+PG_DATABASE = "cufel_q"
+
+@st.cache_data(ttl=600)
+def fetch_arena_benchmarks() -> dict:
+    """获取竞技场所有 Agent 的业绩基准数据"""
+    try:
+        import psycopg2
+        conn = psycopg2.connect(host=PG_HOST, port=PG_PORT, user=PG_USER,
+                                password=PG_PASSWORD, database=PG_DATABASE, connect_timeout=5)
+        cur = conn.cursor()
+
+        # Agent 列表
+        cur.execute("SELECT agent_id, agent_name, type FROM arena.agent_pool")
+        agents = {r[0]: {"name": r[1], "type": r[2]} for r in cur.fetchall()}
+
+        # 最新 NAV
+        cur.execute("""SELECT agent_id, date, nav, ret FROM arena.daily_nav
+            WHERE (agent_id, date) IN (SELECT agent_id, max(date) FROM arena.daily_nav GROUP BY agent_id)""")
+        navs = {}
+        for r in cur.fetchall():
+            navs[r[0]] = {"date": str(r[1]), "nav": float(r[2] or 1), "ret": float(r[3] or 0)}
+
+        # 回测指标
+        cur.execute("""SELECT agent_id, metrics FROM arena.backtest_res
+            WHERE (agent_id, date) IN (SELECT agent_id, max(date) FROM arena.backtest_res GROUP BY agent_id)""")
+        bt_metrics = {}
+        for r in cur.fetchall():
+            bt_metrics[r[0]] = r[1] if isinstance(r[1], dict) else {}
+
+        cur.close()
+        conn.close()
+
+        # 组装结果
+        result = {}
+        for aid, info in agents.items():
+            result[info["name"]] = {
+                "type": info["type"],
+                "nav": navs.get(aid, {}).get("nav", 1.0),
+                "ret": navs.get(aid, {}).get("ret", 0),
+                "date": navs.get(aid, {}).get("date", ""),
+                "ann_ret": bt_metrics.get(aid, {}).get("ann_ret", 0),
+                "sharpe": bt_metrics.get(aid, {}).get("sharpe_ratio", 0),
+                "max_dd": bt_metrics.get(aid, {}).get("max_drawdown", 0),
+            }
+        return result
+    except Exception:
+        return {}
+
+
+# ── TDA 舆情指标（占位，nlp 库授权后启用）───────────
+def fetch_tda_sentiment(date_str: str) -> dict:
+    """从 nlp 库获取 TDA 舆情分歧度指标"""
+    try:
+        sql = f"""SELECT h1_count, h1_size, h2_count, h2_size
+        FROM nlp.zong_TDA WHERE date = '{date_str}'"""
+        df = _ch_fetch(sql)
+        if not df.empty:
+            return {"h1_count": df["h1_count"].iloc[0], "h1_size": df["h1_size"].iloc[0],
+                    "h2_count": df["h2_count"].iloc[0], "h2_size": df["h2_size"].iloc[0]}
+    except Exception:
+        pass
+    return {}
 
 
 # ── 实时行情 ───────────────────────────────────────────
@@ -909,6 +997,7 @@ with tab_portfolio:
     if actual_df is not None and len(actual_df) > 0:
         st.divider()
         st.subheader("📡 策略信号")
+        llm_result = None
         try:
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
             macro_data = agent.data_agent.get_macro_for_decision(date_obj)
@@ -943,6 +1032,14 @@ with tab_portfolio:
             st.caption(f"置信 {conf:.0%}")
             if summary:
                 st.caption(summary)
+
+            # MAS 辩论详情
+            if llm_result and "bull" in llm_result:
+                bc = llm_result["bull"].get("confidence", 0.5)
+                brc = llm_result["bear"].get("confidence", 0.5)
+                st.caption(f"🟢 多头: {bc:.0%}  |  🔴 空头: {brc:.0%}")
+                st.progress(bc / max(bc + brc, 0.01), text="多空平衡")
+
             st.caption(f"PMI {macro_data.pmi:.1f} | CPI {macro_data.cpi_yoy:.1f}% | M2 {macro_data.m2_yoy:.1f}%")
 
             if strategy_holdings:
@@ -1147,9 +1244,30 @@ with tab_macro:
     except Exception as e:
         st.error(f"宏观分析失败: {e}")
 
+    # ── Arena 竞技场基准 ────────────────────────────
+    st.divider()
+    st.subheader("🏆 Arena 竞技场基准")
+
+    bench = fetch_arena_benchmarks()
+    if bench:
+        # 按年化收益排序
+        sorted_agents = sorted(bench.items(), key=lambda x: x[1].get("ann_ret", 0), reverse=True)
+        bdata = []
+        for name, info in sorted_agents:
+            bdata.append({
+                "Agent": name, "类型": info["type"],
+                "累计净值": f"{info['nav']:.3f}",
+                "日收益": f"{info['ret']*100:+.2f}%",
+                "年化收益": f"{info['ann_ret']*100:.1f}%",
+                "夏普": f"{info['sharpe']:.2f}",
+                "最大回撤": f"{info['max_dd']*100:.1f}%",
+            })
+        st.dataframe(pd.DataFrame(bdata), use_container_width=True, hide_index=True)
+
 # ═══════════════════════════════════════════════════════════
-# 第三个 Tab: 回测结果
+# 第四个 Tab: 回测结果
 # ═══════════════════════════════════════════════════════════
+# (注：Arena 基准已整合到宏观指标 Tab 中)
 with tab_backtest:
     st.header("📈 回测结果")
 
