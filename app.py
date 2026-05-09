@@ -990,7 +990,7 @@ with tab_portfolio:
                             "强弱": st.column_config.TextColumn(width="small"),
                             "操作": st.column_config.TextColumn(width="small"),
                         })
-                    st.caption("评分：60日位置 40% + 波动率倒数 30% + 120日位置 30%  |  ⭐强势 > 👍稳健 > 👎弱势
+                    st.caption("评分：60日位置 40% + 波动率倒数 30% + 120日位置 30% | ⭐强势 > 👍稳健 > 👎弱势")
                 else:
                     st.success("各类别比例合理，无需调整")
 
