@@ -155,22 +155,30 @@ ETF_NAMES = {
     "512880": "证券ETF", "516160": "新能源",
 }
 
-# ── ClickHouse 连接 ─────────────────────────────────────
+# ── ClickHouse 连接（quantchdb） ──────────────────────
 CH_HOST = os.getenv("CHDB_HOST", "10.13.66.5")
 CH_PORT = int(os.getenv("CHDB_PORT", "20107"))
 CH_USER = os.getenv("CHDB_USER", "cufel_arena_etf_reader")
 CH_PASSWORD = os.getenv("CHDB_PASSWORD", "cufel_arena_etf_404")
 CH_DATABASE = os.getenv("CHDB_DATABASE", "etf")
 
-@st.cache_resource
-def get_clickhouse_client():
-    from clickhouse_driver import Client
-    return Client(host=CH_HOST, port=CH_PORT, user=CH_USER, password=CH_PASSWORD, database=CH_DATABASE)
+CH_CONFIG = {"host": CH_HOST, "port": CH_PORT, "user": CH_USER,
+             "password": CH_PASSWORD, "database": CH_DATABASE}
+
+def _ch_fetch(sql: str):
+    """安全查询 ClickHouse"""
+    from quantchdb import ClickHouseDatabase
+    with ClickHouseDatabase(config=CH_CONFIG, terminal_log=False) as db:
+        return db.fetch(sql)
+
+def _ch_execute_rows(sql: str):
+    """执行并返回原始行列表"""
+    from quantchdb import ClickHouseDatabase
+    with ClickHouseDatabase(config=CH_CONFIG, terminal_log=False) as db:
+        return db.fetch(sql).values.tolist()
 
 @st.cache_data(ttl=300)
 def fetch_live_prices(codes: list, target_date: str) -> dict:
-    """获取指定日期的最新价格"""
-    ch = get_clickhouse_client()
     codes_str = ",".join(f"'{c}'" for c in codes)
     sql = f"""
         SELECT code, close, pre_close, pct_chg
@@ -179,12 +187,13 @@ def fetch_live_prices(codes: list, target_date: str) -> dict:
         ORDER BY date DESC
         LIMIT 1 BY code
     """
-    rows = ch.execute(sql)
-    return {r[0]: {"close": r[1], "pre_close": r[2], "pct_chg": r[3]} for r in rows}
+    df = _ch_fetch(sql)
+    if df.empty: return {}
+    return {r["code"]: {"close": r["close"], "pre_close": r["pre_close"], "pct_chg": r["pct_chg"]}
+            for _, r in df.iterrows()}
 
 @st.cache_data(ttl=3600)
 def fetch_etf_prices(codes: list, start: str, end: str) -> pd.DataFrame:
-    ch = get_clickhouse_client()
     codes_str = ",".join(f"'{c}'" for c in codes)
     sql = f"""
         SELECT date, code, close, adj_factor
@@ -192,26 +201,21 @@ def fetch_etf_prices(codes: list, start: str, end: str) -> pd.DataFrame:
         WHERE code IN ({codes_str}) AND date BETWEEN '{start}' AND '{end}'
         ORDER BY date, code
     """
-    rows = ch.execute(sql)
-    df = pd.DataFrame(rows, columns=["date", "code", "close", "adj_factor"])
-    # ClickHouse Date 转为 pd.Timestamp，避免 datetime.date vs str 比较报错
+    df = _ch_fetch(sql)
+    if df.empty: return df
     df["date"] = pd.to_datetime(df["date"])
     df["close_adj"] = df["close"] * df["adj_factor"]
     return df
 
 @st.cache_data(ttl=3600)
 def fetch_kline_data(code: str, days: int = 90) -> pd.DataFrame:
-    """获取单只股票/ETF的K线数据"""
-    ch = get_clickhouse_client()
     sql = f"""
         SELECT date, open, high, low, close, vol, adj_factor
-        FROM etf.etf_day
-        WHERE code = '{code}'
-        ORDER BY date DESC
-        LIMIT {days}
+        FROM etf.etf_day WHERE code = '{code}'
+        ORDER BY date DESC LIMIT {days}
     """
-    rows = ch.execute(sql)
-    df = pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "vol", "adj_factor"])
+    df = _ch_fetch(sql)
+    if df.empty: return df
     df = df.sort_values("date").reset_index(drop=True)
     for col in ["open", "high", "low", "close"]:
         df[col] = df[col] * df["adj_factor"]
@@ -220,9 +224,9 @@ def fetch_kline_data(code: str, days: int = 90) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600)
 def fetch_date_range():
-    ch = get_clickhouse_client()
-    min_d, max_d = ch.execute("SELECT min(date), max(date) FROM etf.etf_day")[0]
-    return pd.to_datetime(min_d).date(), pd.to_datetime(max_d).date()
+    df = _ch_fetch("SELECT min(date) as mi, max(date) as ma FROM etf.etf_day")
+    if df.empty: return None, None
+    return pd.to_datetime(df["mi"].iloc[0]).date(), pd.to_datetime(df["ma"].iloc[0]).date()
 
 # ── Agent 初始化 ───────────────────────────────────────
 @st.cache_resource
@@ -378,34 +382,29 @@ def calc_metrics(code: str) -> dict:
     pos60 = pos120 = 50
     ann_vol = 0.0
     try:
-        ch = get_clickhouse_client()
         for days, label in [(60, "pos60"), (120, "pos120")]:
-            # 用 close_adj 列（已在 fetch 阶段计算过）更方便，但这里直接用原始字段
             sql = f"""
                 SELECT max(high * adj_factor) as hh, min(low * adj_factor) as ll,
                        argMax(close * adj_factor, date) as last_close
                 FROM etf.etf_day WHERE code = '{code}'
                   AND date <= today() AND date >= today() - {days}
             """
-            rows = ch.execute(sql)
-            if rows and rows[0][0] is not None:
-                hh, ll, last = float(rows[0][0]), float(rows[0][1]), float(rows[0][2])
+            df = _ch_fetch(sql)
+            if not df.empty:
+                hh, ll, last = float(df["hh"].iloc[0]), float(df["ll"].iloc[0]), float(df["last_close"].iloc[0])
                 if hh > ll and last > 0:
                     val = (last - ll) / (hh - ll) * 100
                 else:
                     val = 50
-                if label == "pos60":
-                    pos60 = val
-                else:
-                    pos120 = val
+                if label == "pos60": pos60 = val
+                else: pos120 = val
 
-        # 年化波动率（近60日）
         sql_vol = f"""
-            SELECT stddevPop(log(close * adj_factor / lagInFrame(close * adj_factor, 1) over (order by date))) * sqrt(252)
+            SELECT stddevPop(log(close * adj_factor / lagInFrame(close * adj_factor, 1) over (order by date))) * sqrt(252) as vol
             FROM etf.etf_day WHERE code = '{code}' AND date <= today() AND date >= today() - 60
         """
-        rows_v = ch.execute(sql_vol)
-        ann_vol = float(rows_v[0][0]) * 100 if rows_v and rows_v[0][0] else 0.0
+        df_v = _ch_fetch(sql_vol)
+        ann_vol = float(df_v["vol"].iloc[0]) * 100 if not df_v.empty and df_v["vol"].iloc[0] else 0.0
     except Exception:
         pass
     return {"年化波动率": ann_vol, "60日位置": pos60, "120日位置": pos120}
