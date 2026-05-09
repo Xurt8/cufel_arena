@@ -869,69 +869,100 @@ with tab_portfolio:
 
 
     # ── 交易信号区（持仓分析底部）─────────────────────
-    if use_real_holdings and actual_df is not None and strategy_holdings:
+    if actual_df is not None and len(actual_df) > 0:
         st.divider()
-        st.subheader("📡 QMT 交易信号")
-        signal_cols = st.columns([2, 3])
+        st.subheader("📡 策略信号")
+        try:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            macro_data = agent.data_agent.get_macro_for_decision(date_obj)
+            analysis = agent.macro_agent.analyze(macro_data)
+            cycle = analysis.get("cycle_phase", "N/A")
+            conf = analysis.get("confidence", 0)
+            score = analysis.get("metadata", {}).get("score", "—")
+        except Exception:
+            cycle, conf, score = "N/A", 0, "—"
 
-        with signal_cols[0]:
-            # 宏观周期 + 信号摘要
-            try:
-                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                macro_data = agent.data_agent.get_macro_for_decision(date_obj)
-                analysis = agent.macro_agent.analyze(macro_data)
-                cycle = analysis.get("cycle_phase", "N/A")
-                conf = analysis.get("confidence", 0)
-                score = analysis.get("metadata", {}).get("score", "—")
+        sig_l, sig_r = st.columns([1.5, 3.5])
 
-                st.metric("经济周期", cycle)
-                st.caption(f"置信度: {conf:.0%} | 打分: {score}")
-                st.caption(f"PMI {macro_data.pmi:.1f} | CPI {macro_data.cpi_yoy:.1f}% | M2 {macro_data.m2_yoy:.1f}%")
+        with sig_l:
+            clr_map = {"复苏期": "green", "扩张期": "green", "滞胀期": "orange", "衰退期": "red", "N/A": "gray"}
+            st.markdown(f"### :{clr_map.get(cycle, 'gray')}[{cycle}]")
+            st.caption(f"PMI {macro_data.pmi:.1f} | CPI {macro_data.cpi_yoy:.1f}% | M2 {macro_data.m2_yoy:.1f}%")
+            st.caption(f"置信 {conf:.0%} | 打分 {score}")
 
-                # 策略权重
-                st.caption("目标权重")
+            if strategy_holdings:
+                st.caption("策略建议池")
                 for code, w in strategy_holdings.items():
-                    st.caption(f"{ETF_NAMES.get(code, code)}: **{w*100:.1f}%**")
-            except Exception as e:
-                st.warning(f"信号生成失败: {e}")
+                    st.caption(f"{ETF_NAMES.get(code, code)}({code}): **{w*100:.1f}%**")
 
-        with signal_cols[1]:
-            # 调仓计算
+        with sig_r:
+            # 实际持仓按资产类别汇总 → 对比策略建议的股票/债券/商品比例
             if actual_df is not None and len(actual_df) > 0:
-                total_mv = actual_df["市值"].sum()
-                trade_plan = []
-                for code, sw in strategy_holdings.items():
-                    target_mv = total_mv * sw
-                    actual_row = actual_df[actual_df["代码"] == code]
-                    if len(actual_row) > 0:
-                        cur_qty = float(actual_row["数量"].iloc[0])
-                        cur_price = float(actual_row["当前价"].iloc[0])
-                        cur_mv = cur_qty * cur_price
-                    else:
-                        cur_mv = 0
-                        cur_price = 0
-                    diff = target_mv - cur_mv
-                    if abs(diff) > 500:
-                        trade_qty = int(abs(diff) / cur_price / 100) * 100 if cur_price > 0 else 0
-                        trade_plan.append({
-                            "代码": code, "名称": ETF_NAMES.get(code, code),
-                            "操作": "买入" if diff > 0 else "卖出",
-                            "金额": f"{abs(diff):,.0f}",
-                            "约(手)": trade_qty // 100 if trade_qty > 0 else "—",
+                # 分类实际持仓
+                type_map = {
+                    "510300": "股票", "510500": "股票", "159915": "股票", "159994": "股票",
+                    "510880": "股票", "512690": "股票", "512760": "股票", "512880": "股票",
+                    "516160": "股票", "159185": "股票", "159672": "股票", "002506": "股票",
+                    "511010": "债券", "511220": "债券",
+                    "518880": "商品", "159934": "商品",
+                }
+                actual_types = {"股票": 0.0, "债券": 0.0, "商品": 0.0}
+                total_mv = 0
+                for _, r in actual_df.iterrows():
+                    code = str(r["代码"])
+                    mv = float(r["数量"]) * float(r["当前价"])
+                    t = type_map.get(code, "股票")
+                    actual_types[t] += mv
+                    total_mv += mv
+
+                # 策略建议的类别比例
+                strategy_types = {"股票": 0.0, "债券": 0.0, "商品": 0.0}
+                for code, w in strategy_holdings.items():
+                    t = type_map.get(code, "股票")
+                    strategy_types[t] += w
+
+                st.caption("资产类别对比（实际 vs 策略）")
+                tc = st.columns(3)
+                for i, (t, label) in enumerate([("股票", "🟢"), ("债券", "🔵"), ("商品", "🟡")]):
+                    ap = actual_types[t] / total_mv * 100 if total_mv > 0 else 0
+                    sp = strategy_types[t] * 100
+                    diff = sp - ap
+                    tc[i].metric(f"{label} {t}",
+                                 f"{ap:.1f}% → {sp:.1f}%",
+                                 delta=f"{diff:+.1f}%")
+
+                # 针对实盘持仓的调整建议
+                st.caption("实盘调整建议")
+                adj_plan = []
+                for _, r in actual_df.iterrows():
+                    code = str(r["代码"])
+                    name = ETF_NAMES.get(code, r.get("名称", code))
+                    qty = float(r["数量"])
+                    price = float(r["当前价"])
+                    cur_mv = qty * price
+                    cur_w = cur_mv / total_mv if total_mv > 0 else 0
+
+                    t = type_map.get(code, "股票")
+                    target_type_w = strategy_types.get(t, 0.3)
+                    # 在类别内等权分配
+                    n_in_type = sum(1 for _, r2 in actual_df.iterrows()
+                                    if type_map.get(str(r2["代码"]), "股票") == t)
+                    target_w = target_type_w / max(n_in_type, 1)
+                    diff_w = target_w - cur_w
+                    diff_mv = total_mv * diff_w
+
+                    if abs(diff_mv) > 3000:
+                        adj_plan.append({
+                            "代码": code, "名称": name, "类别": t,
+                            "当前": f"{cur_w*100:.1f}%", "目标": f"{target_w*100:.1f}%",
+                            "操作": "增持" if diff_mv > 0 else "减持",
+                            "金额": f"{abs(diff_mv):,.0f}元",
                         })
 
-                if trade_plan:
-                    st.caption("调仓计划（可在QMT执行）")
-                    plan_df = pd.DataFrame(trade_plan)
-                    st.dataframe(plan_df, use_container_width=True, hide_index=True,
-                        column_config={"操作": st.column_config.TextColumn(width="small")})
-                    buy_total = sum(
-                        float(t["金额"].replace(",", "")) for t in trade_plan if t["操作"] == "买入")
-                    sell_total = sum(
-                        float(t["金额"].replace(",", "")) for t in trade_plan if t["操作"] == "卖出")
-                    st.caption(f"合计买入: **{buy_total:,.0f}** 元 | 卖出: **{sell_total:,.0f}** 元")
+                if adj_plan:
+                    st.dataframe(pd.DataFrame(adj_plan), use_container_width=True, hide_index=True)
                 else:
-                    st.success("无需调仓，权重差异在容忍范围内")
+                    st.success("各类别比例合理，无需调整")
 
 
 # ═══════════════════════════════════════════════════════════
