@@ -282,6 +282,43 @@ def run_backtest_actual(holdings_df: pd.DataFrame, start_date: str, end_date: st
     return _calc_nav(weights_df, start_date, end_date)
 
 
+# ── LLM 宏观分析 ──────────────────────────────────────
+LLM_URL = "http://10.13.66.5:20168/v1/chat/completions"
+LLM_KEY = "sk-2025210589-fb1bf3c5"
+LLM_MODEL = "Qwen/Qwen3-Next-80B-A3B-Instruct"
+
+def llm_analyze_macro(pmi, cpi, ppi, m2, sf, gdp, s1m, s3m) -> dict:
+    """调用 LLM 分析宏观数据 → 返回 {cycle, confidence, analysis}"""
+    prompt = f"""你是宏观经济分析专家。根据以下指标判断当前中国经济周期阶段（复苏期/扩张期/滞胀期/衰退期）：
+
+- PMI：{pmi}
+- CPI 同比：{cpi}%
+- PPI 同比：{ppi}%
+- M2 同比：{m2}%
+- 社融增量（亿元）：{sf}
+- GDP 当季同比：{gdp}%
+- SHIBOR 1月/3月：{s1m}/{s3m}
+
+回复格式（严格JSON，不要其他文字）：
+{{"cycle":"周期阶段","confidence":0.0到1.0,"analysis":"一句话分析"}}"""
+    try:
+        r = requests.post(LLM_URL,
+            headers={"Authorization": f"Bearer {LLM_KEY}", "Content-Type": "application/json"},
+            json={"model": LLM_MODEL, "messages": [{"role":"user","content":prompt}],
+                  "max_tokens": 200, "temperature": 0.3},
+            timeout=15)
+        if r.status_code == 200:
+            text = r.json()["choices"][0]["message"]["content"]
+            # 提取 JSON
+            import re
+            m = re.search(r'\{[^}]+\}', text)
+            if m:
+                return json.loads(m.group())
+    except Exception:
+        pass
+    return None
+
+
 # ── 实时行情 ───────────────────────────────────────────
 SINA_HEADERS = {"Referer": "https://finance.sina.com.cn"}
 
@@ -875,20 +912,38 @@ with tab_portfolio:
         try:
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
             macro_data = agent.data_agent.get_macro_for_decision(date_obj)
-            analysis = agent.macro_agent.analyze(macro_data)
-            cycle = analysis.get("cycle_phase", "N/A")
-            conf = analysis.get("confidence", 0)
-            score = analysis.get("metadata", {}).get("score", "—")
+
+            # ── LLM 分析（优先）──
+            llm_result = llm_analyze_macro(
+                macro_data.pmi, macro_data.cpi_yoy, macro_data.ppi_yoy,
+                macro_data.m2_yoy, macro_data.sf_month, macro_data.gdp_yoy,
+                macro_data.shibor_1m, macro_data.shibor_3m)
+
+            if llm_result:
+                cycle = llm_result.get("cycle", "N/A")
+                conf = llm_result.get("confidence", 0.5)
+                summary = llm_result.get("analysis", "")
+                source = "🤖 LLM"
+            else:
+                # 回退到规则打分
+                analysis = agent.macro_agent.analyze(macro_data)
+                cycle = analysis.get("cycle_phase", "N/A")
+                conf = analysis.get("confidence", 0)
+                summary = analysis.get("analysis", "")
+                source = "📏 规则"
         except Exception:
-            cycle, conf, score = "N/A", 0, "—"
+            cycle, conf, summary, source = "N/A", 0, "", "—"
 
         sig_l, sig_r = st.columns([1.5, 3.5])
 
         with sig_l:
             clr_map = {"复苏期": "green", "扩张期": "green", "滞胀期": "orange", "衰退期": "red", "N/A": "gray"}
             st.markdown(f"### :{clr_map.get(cycle, 'gray')}[{cycle}]")
+            st.caption(f"来源: {source}")
+            st.caption(f"置信 {conf:.0%}")
+            if summary:
+                st.caption(summary)
             st.caption(f"PMI {macro_data.pmi:.1f} | CPI {macro_data.cpi_yoy:.1f}% | M2 {macro_data.m2_yoy:.1f}%")
-            st.caption(f"置信 {conf:.0%} | 打分 {score}")
 
             if strategy_holdings:
                 st.caption("策略建议池")
