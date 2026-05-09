@@ -931,35 +931,66 @@ with tab_portfolio:
                                  f"{ap:.1f}% → {sp:.1f}%",
                                  delta=f"{diff:+.1f}%")
 
-                # 针对实盘持仓的调整建议
-                st.caption("实盘调整建议")
-                adj_plan = []
+                # ── 持仓强弱评分 ──────────────────────
+                scores = {}
                 for _, r in actual_df.iterrows():
                     code = str(r["代码"])
-                    name = ETF_NAMES.get(code, r.get("名称", code))
-                    qty = float(r["数量"])
-                    price = float(r["当前价"])
-                    cur_mv = qty * price
-                    cur_w = cur_mv / total_mv if total_mv > 0 else 0
+                    try:
+                        m = calc_metrics(code)
+                        # 综合评分：60日位置(30%) + 120日位置(20%) + 波动率倒数(30%) + 近期动量(20%)
+                        pos60_s = m["60日位置"] / 100
+                        pos120_s = m["120日位置"] / 100
+                        vol_s = max(0, 1 - m["年化波动率"] / 50) if m["年化波动率"] > 0 else 0.5
+                        score = pos60_s * 0.40 + pos120_s * 0.30 + vol_s * 0.30
+                    except Exception:
+                        score = 0.5
+                    scores[code] = score
 
-                    t = type_map.get(code, "股票")
-                    target_type_w = strategy_types.get(t, 0.3)
-                    # 在类别内等权分配
-                    n_in_type = sum(1 for _, r2 in actual_df.iterrows()
-                                    if type_map.get(str(r2["代码"]), "股票") == t)
-                    target_w = target_type_w / max(n_in_type, 1)
-                    diff_w = target_w - cur_w
-                    diff_mv = total_mv * diff_w
+                # ── 按类别智能分配 ────────────────────
+                st.caption("实盘调整建议（按强弱排序）")
+                adj_plan = []
+                for t in ["股票", "商品", "债券"]:
+                    in_type = [(str(r["代码"]), float(r["数量"]), float(r["当前价"]))
+                               for _, r in actual_df.iterrows()
+                               if type_map.get(str(r["代码"]), "股票") == t]
+                    if len(in_type) == 0:
+                        continue
 
-                    action = "增持" if diff_mv > 0 else "减持" if diff_mv < 0 else "—"
-                    adj_plan.append({
-                        "代码": code, "名称": name, "类别": t,
-                        "当前": f"{cur_w*100:.1f}%", "目标": f"{target_w*100:.1f}%",
-                        "操作": action, "差额": f"{diff_mv:+,.0f}元",
-                    })
+                    target_type_w = strategy_types.get(t, 0)
+                    type_total_mv = sum(qty * price for _, qty, price in in_type)
+                    target_type_mv = total_mv * target_type_w  # 该类别总目标市值
+                    diff_type_mv = target_type_mv - type_total_mv  # 需增减的总金额
+
+                    # 按评分排序 → 高分多配，低分少配
+                    in_type.sort(key=lambda x: scores.get(x[0], 0.5), reverse=True)
+                    total_score = sum(scores.get(c, 0.5) for c, _, _ in in_type)
+                    if total_score == 0:
+                        total_score = len(in_type)
+
+                    for code, qty, price in in_type:
+                        cur_mv = qty * price
+                        cur_w = cur_mv / total_mv if total_mv > 0 else 0
+                        sc = scores.get(code, 0.5)
+                        # 按得分比例分配该类别内权重
+                        target_w = target_type_w * sc / total_score
+                        diff_mv = total_mv * target_w - cur_mv
+                        stars = "⭐" if sc > 0.65 else "👍" if sc > 0.5 else "👎" if sc < 0.35 else "—"
+                        action = "增持" if diff_mv > 500 else "减持" if diff_mv < -500 else "—"
+                        adj_plan.append({
+                            "代码": code, "名称": ETF_NAMES.get(code, code),
+                            "类别": t, "评分": f"{sc:.2f}",
+                            "强弱": stars,
+                            "当前": f"{cur_w*100:.1f}%", "目标": f"{target_w*100:.1f}%",
+                            "操作": action, "差额": f"{diff_mv:+,.0f}元",
+                        })
 
                 if adj_plan:
-                    st.dataframe(pd.DataFrame(adj_plan), use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame(adj_plan), use_container_width=True, hide_index=True,
+                        column_config={
+                            "强弱": st.column_config.TextColumn(width="small"),
+                            "操作": st.column_config.TextColumn(width="small"),
+                        })
+                    st.caption("评分：60日位置 40% + 波动率倒数 30% + 120日位置 30%  |  ⭐强势 > 👍稳健 > 👎弱势
                 else:
                     st.success("各类别比例合理，无需调整")
 
