@@ -951,13 +951,12 @@ with tab_portfolio:
                     diff_w = target_w - cur_w
                     diff_mv = total_mv * diff_w
 
-                    if abs(diff_mv) > 3000:
-                        adj_plan.append({
-                            "代码": code, "名称": name, "类别": t,
-                            "当前": f"{cur_w*100:.1f}%", "目标": f"{target_w*100:.1f}%",
-                            "操作": "增持" if diff_mv > 0 else "减持",
-                            "金额": f"{abs(diff_mv):,.0f}元",
-                        })
+                    action = "增持" if diff_mv > 0 else "减持" if diff_mv < 0 else "—"
+                    adj_plan.append({
+                        "代码": code, "名称": name, "类别": t,
+                        "当前": f"{cur_w*100:.1f}%", "目标": f"{target_w*100:.1f}%",
+                        "操作": action, "差额": f"{diff_mv:+,.0f}元",
+                    })
 
                 if adj_plan:
                     st.dataframe(pd.DataFrame(adj_plan), use_container_width=True, hide_index=True)
