@@ -63,15 +63,10 @@ class G:
 g = G()
 
 def get_script_dir():
-
     try: return os.path.dirname(os.path.abspath(__file__))
-
     except: pass
-
-    for d in [r"D:\\python", os.getcwd()]:
-
+    for d in ["D:\u957f\u57ce\u7b56\u7565\u4ea4\u6613\u7cfb\u7edf\python", os.getcwd()]:
         if os.path.isdir(d): return d
-
     return os.getcwd()
 
 def load_orders_file():
