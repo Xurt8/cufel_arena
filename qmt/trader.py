@@ -1207,6 +1207,26 @@ def handlebar(C):
     # Refresh holdings with live totalAssets
     export_holdings(C)
 
+    # Check idle cash every 5 min (even outside trading hours)
+    now = datetime.now()
+    if hasattr(g, '_last_cash_check') and (now - g._last_cash_check).seconds < 300:
+        return
+    g._last_cash_check = now
+    try:
+        acct_rows = get_trade_detail_data(account, "stock", "account")
+        if acct_rows:
+            bal = float(getattr(acct_rows[0], "m_dBalance", 0))
+            tick_all = C.get_full_tick(list(g.holdings.keys()))
+            total_mv = 0
+            for qc, sh in g.holdings.items():
+                if tick_all and qc in tick_all:
+                    total_mv += sh * tick_all[qc].get("lastPrice", 0)
+            available_cash = bal - total_mv
+            if available_cash > 2000:
+                redeploy_cash(C, available_cash)
+                print(f"[CASH] redeployed {available_cash:.0f}yuan")
+    except: pass
+
 
 
 def handle_data(ContextInfo):
