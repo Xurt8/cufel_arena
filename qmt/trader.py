@@ -862,8 +862,31 @@ def init(C):
 
                 })
 
-            # Compute available cash
+            # Compute available cash from account data
             total_mv = sum(p.get("market_value", 0) for p in hold_report["positions"])
+            # Try account balance from various sources
+            try:
+                acct_rows = get_trade_detail_data(account, "stock", "account")
+                if acct_rows:
+                    r = acct_rows[0]
+                    # Dump available numeric attributes
+                    for attr in dir(r):
+                        if attr.startswith("m_d") or attr.startswith("m_n"):
+                            try:
+                                val = float(getattr(r, attr))
+                                if val > 0:
+                                    hold_report["attr_" + attr] = round(val, 2)
+                            except: pass
+                    # Use totalAssets as fallback if no m_dBalance found
+                    bal = 0
+                    for attr in ["m_dAvailable", "m_dBalance", "m_dTotalAsset", "m_dTotal", "m_dEquity"]:
+                        if hasattr(r, attr):
+                            bal = round(float(getattr(r, attr)), 2)
+                            hold_report["_used_field"] = attr
+                            break
+                    hold_report["total_balance"] = bal
+            except Exception as e:
+                hold_report["_acct_err"] = str(e)
             hold_report["available_cash"] = round(hold_report["total_balance"] - total_mv, 2)
 
             d = get_script_dir()
