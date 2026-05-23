@@ -755,77 +755,125 @@ class PortfolioAgent:
         dispersion = float(np.std(arr) / (np.mean(np.abs(arr)) + 0.001))
         return min(1.0, max(0.0, dispersion / 3))
 
+    CYCLE_ALLOC = {
+        "复苏期": {"gold": 0.10, "bond": 0.25, "stock_core": 0.325, "stock_sat": 0.325},
+        "扩张期": {"gold": 0.35, "bond": 0.15, "stock_core": 0.175, "stock_sat": 0.175},
+        "滞胀期": {"gold": 0.30, "bond": 0.15, "stock_core": 0.10, "stock_sat": 0.10},
+        "衰退期": {"gold": 0.10, "bond": 0.50, "stock_core": 0.10, "stock_sat": 0.10},
+    }
+    CORE_STOCKS = {"510300": "沪深300", "510500": "中证500"}
+    SATELLITE_N = 4
+
+    def _get_ma200_cache(self, codes: list, target_date: str) -> dict:
+        """获取指定日期的200日均线值 {code: (close, ma200)}"""
+        import pandas as _pd
+        parquet_path = "cache/ma200_cache.parquet"
+        df = _pd.read_parquet(parquet_path)
+        df["date"] = _pd.to_datetime(df["date"])
+        up_to = df[(df["date"] <= target_date) & (df["code"].isin(codes))]
+        if up_to.empty: return {}
+        latest = up_to.sort_values("date").groupby("code").last()
+        return {c: (latest.loc[c, "close"], latest.loc[c, "ma200"])
+                for c in codes if c in latest.index}
+
+    def _percentile_score(self, raw: list) -> list:
+        """截面排名百分位归一化，返回 [(code, score), ...]"""
+        import pandas as _pd
+        if not raw: return []
+        rf = _pd.DataFrame(raw, columns=["code", "mom_60d", "ann_vol", "sharpe60", "turnover"])
+        w = self.SCORE_WEIGHTS
+        rf["mom_rank"] = rf["mom_60d"].rank(pct=True)
+        rf["vol_rank"] = 1 - rf["ann_vol"].rank(pct=True)
+        rf["sh_rank"] = rf["sharpe60"].rank(pct=True)
+        rf["flow_rank"] = rf["turnover"].rank(pct=True)
+        rf["score"] = (rf["mom_rank"] * w["mom"] + rf["vol_rank"] * w["vol"] +
+                       rf["sh_rank"] * w["sharpe"] + rf["flow_rank"] * w["flow"])
+        rf = rf.sort_values("score", ascending=False)
+        return [(r["code"], r["score"]) for _, r in rf.iterrows()]
+
     def decide(self, macro_analysis: dict, etf_scores: dict = None,
                etf_universe: dict = None,
                current_codes: set = None, curr_date: str = None) -> dict:
-        """ETF组合决策。周期定大类比例，因子做同类排序，轮动速度调风险敞口"""
+        """完整框架: 核心卫星 + 趋势门控 + 截面排名因子"""
         cycle = macro_analysis["cycle_phase"]
         confidence = macro_analysis.get("confidence", 0.5)
-
-        class_weights = dict(self.CLASS_TARGETS.get(cycle, self.CLASS_TARGETS['滞胀期']))
-
-        # 行业轮动速度调节：高轮动 → 降股票、加债券
-        rotation = self._compute_rotation_speed(etf_scores, etf_universe)
-        if rotation > 0.6:  # 轮动剧烈
-            shift = (rotation - 0.5) * 0.3  # 最多移30%
-            class_weights['Stock'] = max(0.05, class_weights['Stock'] - shift)
-            class_weights['Bond'] = min(0.80, class_weights['Bond'] + shift * 0.7)
-            class_weights['Commodity'] = min(0.50, class_weights['Commodity'] + shift * 0.3)
-        if not class_weights:
-            raise ValueError(f"Unknown cycle: {cycle}")
-
-        if etf_scores is None:
-            etf_scores = {}
+        alloc = dict(self.CYCLE_ALLOC.get(cycle, self.CYCLE_ALLOC["滞胀期"]))
+        source = etf_universe if etf_universe is not None else self.ETF_UNIVERSE
+        if etf_scores is None: etf_scores = {}
 
         portfolio = {}
-        for class_type, target_w in class_weights.items():
-            selected = self._select_etfs(class_type, target_w, etf_scores, confidence,
-                                         etf_universe=etf_universe,
-                                         current_codes=current_codes)
-            portfolio.update(selected)
 
-        # 风险控制（含关键词去重 + 残差相关性去重）
+        # --- Gold: fixed ETF ---
+        GOLD_ETF = "518880"
+        portfolio[GOLD_ETF] = {"name": "黄金ETF", "type": "Commodity", "weight": alloc["gold"]}
+
+        # --- Bond: fixed ETF ---
+        BOND_ETF = "511010"
+        portfolio[BOND_ETF] = {"name": "国债ETF", "type": "Bond", "weight": alloc["bond"]}
+
+        # --- Trend gate MA lookup ---
+        above_ma = set()
+        if curr_date:
+            try:
+                all_stock_codes = [item[0] for item in source.get("Stock", [])
+                                   if isinstance(item, (list, tuple))]
+                all_stock_codes += list(self.CORE_STOCKS.keys())
+                ma_data = self._get_ma200_cache(all_stock_codes, curr_date)
+                above_ma = {c for c, (close, ma) in ma_data.items() if close > ma}
+            except Exception: pass
+
+        # --- Stock Core: 沪深300 + 中证500 ---
+        core_codes = [c for c in self.CORE_STOCKS if c in above_ma]
+        if core_codes:
+            per_core = alloc["stock_core"] / len(core_codes)
+            for c in core_codes:
+                portfolio[c] = {"name": self.CORE_STOCKS[c], "type": "Stock",
+                                "weight": per_core}
+        elif alloc["stock_core"] > 0:
+            portfolio[BOND_ETF]["weight"] += alloc["stock_core"]
+
+        # --- Stock Satellite: trend gate + percentile ranking ---
+        raw_data = []
+        for item in source.get("Stock", []):
+            code = item[0] if isinstance(item, (list, tuple)) else item
+            if code not in above_ma: continue
+            sc = etf_scores.get(code, {})
+            if not sc: continue
+            raw_data.append((code, sc.get("mom_60d", 0), sc.get("ann_vol", 0.3),
+                            sc.get("sharpe60", 0), sc.get("turnover", 1.0)))
+
+        ranked = self._percentile_score(raw_data)
+        selected = ranked[:self.SATELLITE_N]
+        if selected:
+            total_s = sum(s for _, s in selected)
+            for code, score in selected:
+                name = "ETF"
+                for item in source.get("Stock", []):
+                    if item[0] == code:
+                        name = item[1]; break
+                w = alloc["stock_sat"] * score / total_s if total_s > 0 else alloc["stock_sat"] / len(selected)
+                portfolio[code] = {"name": name, "type": "Stock", "weight": w}
+        elif alloc["stock_sat"] > 0:
+            # Fallback: satellite allocation to bonds
+            portfolio[BOND_ETF]["weight"] += alloc["stock_sat"]
+
+        # Merge duplicate codes (BOND_ETF may have multiple entries)
+        merged = {}
+        for code, info in portfolio.items():
+            if code in merged:
+                merged[code]["weight"] += info["weight"]
+            else:
+                merged[code] = dict(info)
+        portfolio = merged
+
+        # 风险控制
         portfolio, risk_warnings = self._apply_risk_controls(portfolio, curr_date)
 
-        # 资产类别平滑：限制单次调仓的类别偏移（防换手）
-        prev_class = getattr(self, '_prev_class_weights', None)
-        if prev_class:
-            MAX_SHIFT = 0.15  # 单次最多偏移15%
-            actual = {"Stock": 0, "Bond": 0, "Commodity": 0}
-            for code, info in portfolio.items():
-                actual[info["type"]] += info["weight"]
-            for t in actual:
-                if actual[t] > 0:
-                    actual[t] = round(actual[t], 4)
-
-            # 钳制每类偏移不超过 MAX_SHIFT
-            overflow = 0.0
-            for t in ["Stock", "Bond", "Commodity"]:
-                lo = max(0, prev_class[t] - MAX_SHIFT)
-                hi = min(1, prev_class[t] + MAX_SHIFT)
-                if actual[t] > hi:
-                    overflow += actual[t] - hi
-                    actual[t] = hi
-                elif actual[t] < lo:
-                    overflow -= lo - actual[t]
-                    actual[t] = lo
-
-            # 多余份额按比例分配给未触限的类别
-            if abs(overflow) > 0.001:
-                free = [t for t in actual if prev_class[t] - MAX_SHIFT < actual[t] < prev_class[t] + MAX_SHIFT]
-                if not free:
-                    free = list(actual.keys())
-                for t in free:
-                    actual[t] += overflow / len(free)
-
-            # 缩放 portfolio 内各 ETF 权重以匹配修正后的类别权重
-            for class_type in ["Stock", "Bond", "Commodity"]:
-                class_codes = [c for c, i in portfolio.items() if i["type"] == class_type]
-                old_total = sum(portfolio[c]["weight"] for c in class_codes)
-                if old_total > 0 and actual[class_type] > 0:
-                    scale = actual[class_type] / old_total
-                    for c in class_codes:
-                        portfolio[c]["weight"] = round(portfolio[c]["weight"] * scale, 4)
+        # Normalize
+        total = sum(p["weight"] for p in portfolio.values())
+        if total > 0:
+            for p in portfolio.values():
+                p["weight"] = round(p["weight"] / total, 4)
 
         self._prev_class_weights = {"Stock": 0, "Bond": 0, "Commodity": 0}
         for code, info in portfolio.items():
@@ -835,13 +883,10 @@ class PortfolioAgent:
         risk_check = "通过" if not risk_warnings else "警告: " + "; ".join(risk_warnings)
 
         return {
-            "cycle_phase": cycle,
-            "confidence": confidence,
+            "cycle_phase": cycle, "confidence": confidence,
             "portfolio": portfolio,
             "decision_date": macro_analysis.get("metadata", {}).get("input_date", ""),
-            "reasoning": reasoning,
-            "risk_check": risk_check,
-            "risk_warnings": risk_warnings
+            "reasoning": reasoning, "risk_check": risk_check, "risk_warnings": risk_warnings
         }
 
     def _build_reasoning(self, macro_analysis: dict, portfolio: dict) -> str:
