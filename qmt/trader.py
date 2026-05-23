@@ -866,6 +866,12 @@ def init(C):
 
                 json.dump(hold_report, f, ensure_ascii=False)
 
+            # Init stoploss log if not exists
+            sl_path = os.path.join(d, "stoploss_log.json")
+            if not os.path.exists(sl_path):
+                with open(sl_path, "w", encoding="utf-8") as sf:
+                    json.dump({"updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "events": []}, sf)
+
             print(f"  [Export] qmt_holdings.json")
 
         except: pass
