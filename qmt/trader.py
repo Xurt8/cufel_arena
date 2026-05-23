@@ -488,7 +488,7 @@ def init(C):
         trades = g.orders.get("trades", {})
         n_sell = len(trades.get("ֹ������", [])) + len([o for o in trades.get("����", []) if o.get("����") == "��"])
         n_buy = len([o for o in trades.get("����", []) if o.get("����") == "��"])
-        print(f"  [ָ��] {date} | ֹ����{n_sell}�� ��{n_buy}�� | ���{len(g.stops)}ֻ")
+        print(f"  [ָ��] {date} | ֹ����{n_sell}�� ��{n_buy}�� | ʵ�ʼ��{sum(1 for c in g.stops if code_to_qmt(c) in g.holdings)}/{len(g.stops)}ֻ")
 
         # ����universe����ʵ�̳�������
         if g.stops:
