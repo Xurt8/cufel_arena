@@ -41,11 +41,16 @@ def get_script_dir():
     return os.getcwd()
 
 def load_orders_file():
-    # ֻ����һ�ݣ���ɨ�費�²�
-    path = r"D:\���ǲ��Խ���ϵͳ\python\qmt_orders_latest.json"
+    """加载指令文件, 优先策略同目录, 回退硬编码路径"""
+    import os, json
+    my_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(my_dir, "qmt_orders_latest.json")
+    if not os.path.exists(path):
+        path = r"D:\长城策略交易系统\python\qmt_orders_latest.json"
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f: return json.load(f)
-    print(f"[ERROR] δ�ҵ�ָ���ļ�: {path}")
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    print(f"[ERROR] not found: {path}")
     return None
 
 def code_to_qmt(code):
