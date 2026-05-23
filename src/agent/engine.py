@@ -618,7 +618,10 @@ class PortfolioAgent:
             return cls._sector_map
         cls._sector_map = {}
         try:
-            from src.data.local_store import get_sector_map
+            try:
+                from data.local_store import get_sector_map
+            except ImportError:
+                from src.data.local_store import get_sector_map
             cached = get_sector_map()
             stock_set = cached.get("stock", set())
             # 对股票型ETF，进一步按SW1行业分类
@@ -870,7 +873,10 @@ class PortfolioAgent:
 
         codes_to_fetch = list(set(stock_codes + ["510300"]))
         try:
-            from src.data.local_store import get_bars
+            try:
+                from data.local_store import get_bars
+            except ImportError:
+                from src.data.local_store import get_bars
             bars = get_bars(codes_to_fetch, days=30)
             if not bars:
                 return portfolio
@@ -1088,7 +1094,10 @@ class MacroDrivenETFAgent(ETFAgentBase):
             return {}
 
         try:
-            from src.data.local_store import get_bars
+            try:
+                from data.local_store import get_bars
+            except ImportError:
+                from src.data.local_store import get_bars
             bars = get_bars(all_codes, days=130)
             if not bars:
                 return {}
