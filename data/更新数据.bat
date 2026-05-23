@@ -31,6 +31,12 @@ if csv.exists():
 else:
     print('  No pending CSV to merge')"
 echo.
+echo [4/4] 因子数据下载 (MiniQMT)...
+"D:\长城策略交易系统\bin.x64\pythonw.exe" scripts\download_factors.py
+if errorlevel 1 (
+    echo [WARNING] 因子下载失败，检查 MiniQMT 是否运行
+)
+echo.
 echo ============================================
 echo  更新完成
 echo ============================================
