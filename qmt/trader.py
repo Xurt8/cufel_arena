@@ -786,7 +786,7 @@ def export_holdings(C):
         d = get_script_dir()
         hold_report = {
             "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "total_balance": round(float(getattr(C, "totalAssets", 0)), 2),
+            "total_balance": round(float((getattr(C, "totalAssets", 0) or getattr(g, "_ctx_balance", 0))), 2),
             "positions": []
         }
         pos_rows = get_trade_detail_data(account, "stock", "position")
@@ -853,7 +853,7 @@ def init(C):
 
                 "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
 
-                "total_balance": round(float(getattr(C, "totalAssets", 0)), 2),
+                "total_balance": round(float((getattr(C, "totalAssets", 0) or getattr(g, "_ctx_balance", 0))), 2),
 
                 "positions": []
 
@@ -1134,6 +1134,25 @@ def handlebar(C):
 
     # Refresh holdings with live totalAssets
     export_holdings(C)
+
+
+
+def handle_data(ContextInfo):
+    """Update balance from account context, fires every tick/period"""
+    g._ctx_balance = getattr(ContextInfo, 'totalAssets', 0)
+    try:
+        d = get_script_dir()
+        fpath = os.path.join(d, 'qmt_holdings.json')
+        if os.path.exists(fpath):
+            with open(fpath, 'r', encoding='utf-8') as fh:
+                data = json.load(fh)
+            total_mv = sum(p.get('market_value', 0) for p in data.get('positions', []))
+            data['total_balance'] = round(float(g._ctx_balance), 2)
+            data['available_cash'] = round(data['total_balance'] - total_mv, 2)
+            data['updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            with open(fpath, 'w', encoding='utf-8') as fh:
+                json.dump(data, fh, ensure_ascii=False)
+    except: pass
 
 # ======== run_time timers ========
 
