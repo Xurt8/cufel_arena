@@ -22,8 +22,24 @@
 - 多步骤任务先列计划再执行，每步验证
 
 ## 项目特定规则
-- QMT 策略文件用 GBK 编码，`#coding:gbk` 声明
 - Streamlit 用 Python 3.13，xtdata/MiniQMT 用 Python 3.11
-- 所有中文日志、注释用 GBK 兼容字符（避免 ✓ ≈ → 等符号）
 - ETF 分类优先用 xtdata 板块归属，不要自己写关键词匹配
 - 数据文件读写优先本地 parquet/JSON，不依赖 ClickHouse
+
+## QMT 策略代码编写规则（前置条件，必须遵守）
+
+### 编码与文件
+- **纯 ASCII 编码**：QMT 策略文件不得包含任何中文字符。所有日志、注释用英文
+- **编码声明**：`#coding:latin-1`（接受任意字节，防止 SyntaxError）
+- **交付方式**：写入 `D:\长城策略交易系统\python\_trader_code.txt`，用户手动粘贴到 QMT 策略编辑器。QMT 会加密外部写入的文件，不能直接替换
+
+### QMT 运行环境限制
+- **`__file__` 不存在**：QMT 用 `exec()` 运行策略代码，没有 `__file__`。用 `os.getcwd()` 替代（cwd 通常为 `D:\长城策略交易系统\bin.x64`）
+- **中文路径不可靠**：`os.getcwd()` 返回中文路径时，`os.path.exists()` 可能失败。写入文件到 `D:\` 根目录作为回退
+- **模拟模式 vs 交易模式**：模拟模式 `query_holdings()` 返回空，只有交易模式有真实持仓
+
+### 数据格式约定
+- **`g.holdings`**（实盘持仓）：key 为 QMT 代码，可能带或不带 `.SH`/`.SZ` 后缀。比较时两种都检查：`qmt_code in g.holdings or code in g.holdings`
+- **`g.stops`**（止损监控列表）：key 为纯数字代码（来自 Streamlit 生成的 JSON），不含后缀
+- **QMT 内置变量**：`account`（账户ID）、`passorder`、`get_trade_detail_data`、`get_full_tick`、`C`（上下文）均为 QMT 框架注入，无需定义或导入
+- **止损 vs 调仓**：止损每天执行（`run_stoploss`），调仓仅 D1/D2/D3 三天执行（`run_rebalance`）。两套独立逻辑，止损不依赖调仓日
