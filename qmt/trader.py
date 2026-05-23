@@ -281,8 +281,13 @@ def redeploy_cash(C, available_cash):
         target = total_assets * target_pct
         deficit = target - cur
         if deficit > 500:
-            amt = min(deficit, remaining)
             tq = code_to_qmt(code)
+            # Check if enough for 1 lot
+            t = C.get_full_tick([tq])
+            price = t[tq].get("askPrice", [0])[0] if t and tq in t else 0
+            min_cost = price * 100 if price > 0 else 999999
+            if remaining < min_cost: continue  # skip to next level
+            amt = min(deficit, remaining)
             do_buy(C, tq, int(amt), "cascade_" + code)
             remaining -= amt
 
@@ -293,6 +298,10 @@ def redeploy_cash(C, available_cash):
         for code, _ in sat:
             if remaining < 500: break
             tq = code_to_qmt(code)
+            t = C.get_full_tick([tq])
+            price = t[tq].get("askPrice", [0])[0] if t and tq in t else 0
+            min_cost = price * 100 if price > 0 else 999999
+            if remaining < min_cost: continue
             do_buy(C, tq, int(remaining), "cascade_" + code)
             remaining = 0
             break
