@@ -750,7 +750,7 @@ class PortfolioAgent:
 
     def decide(self, macro_analysis: dict, etf_scores: dict = None,
                etf_universe: dict = None,
-               current_codes: set = None) -> dict:
+               current_codes: set = None, curr_date: str = None) -> dict:
         """ETF组合决策。周期定大类比例，因子做同类排序，轮动速度调风险敞口"""
         cycle = macro_analysis["cycle_phase"]
         confidence = macro_analysis.get("confidence", 0.5)
@@ -777,8 +777,8 @@ class PortfolioAgent:
                                          current_codes=current_codes)
             portfolio.update(selected)
 
-        # 风险控制
-        portfolio, _ = self._apply_risk_controls(portfolio)
+        # 风险控制（含关键词去重 + 残差相关性去重）
+        portfolio, _ = self._apply_risk_controls(portfolio, curr_date)
 
         # 资产类别平滑：限制单次调仓的类别偏移（防换手）
         prev_class = getattr(self, '_prev_class_weights', None)
@@ -831,8 +831,82 @@ class PortfolioAgent:
             "decision_date": macro_analysis.get("metadata", {}).get("input_date", "")
         }
 
-    def _apply_risk_controls(self, portfolio: Dict) -> tuple:
-        """应用风险控制"""
+    def _dedup_correlation(self, portfolio: dict, curr_date: str) -> dict:
+        """残差相关性去重：仅股票类内，22日滚动，阈值0.95，至少保留3只"""
+        stock_codes = [c for c, p in portfolio.items() if p.get("type") == "Stock"]
+        if len(stock_codes) < 4:
+            return portfolio
+
+        codes_to_fetch = list(set(stock_codes + ["510300"]))
+        try:
+            from src.data.local_store import get_bars
+            bars = get_bars(codes_to_fetch, days=30)
+            if not bars:
+                return portfolio
+            frames = []
+            for c, df in bars.items():
+                df2 = df[['close']].copy()
+                df2['code'] = c
+                df2 = df2.reset_index().rename(columns={'index': 'date'})
+                frames.append(df2)
+            if not frames:
+                return portfolio
+            raw = pd.concat(frames, ignore_index=True)
+            raw["date"] = pd.to_datetime(raw["date"])
+        except:
+            return portfolio
+
+        mkt = raw[raw["code"] == "510300"]
+        if len(mkt) < 22:
+            return portfolio
+        mkt_ret = mkt["close"].tail(22).pct_change().dropna()
+        if len(mkt_ret) < 15:
+            return portfolio
+
+        to_remove = set()
+        for i in range(len(stock_codes)):
+            if stock_codes[i] in to_remove:
+                continue
+            for j in range(i + 1, len(stock_codes)):
+                if stock_codes[j] in to_remove:
+                    continue
+                s1 = raw[raw["code"] == stock_codes[i]]
+                s2 = raw[raw["code"] == stock_codes[j]]
+                if len(s1) < 22 or len(s2) < 22:
+                    continue
+                r1_raw = s1["close"].tail(22).pct_change()
+                r2_raw = s2["close"].tail(22).pct_change()
+                if r1_raw.count() < 15 or r2_raw.count() < 15:
+                    continue
+                common = r1_raw.dropna().index.intersection(r2_raw.dropna().index).intersection(mkt_ret.index)
+                if len(common) < 15:
+                    continue
+                r1 = r1_raw[common]
+                r2 = r2_raw[common]
+                m = mkt_ret[common]
+                beta1 = np.cov(r1, m)[0, 1] / np.var(m) if np.var(m) > 0 else 1
+                beta2 = np.cov(r2, m)[0, 1] / np.var(m) if np.var(m) > 0 else 1
+                resid1 = r1 - beta1 * m
+                resid2 = r2 - beta2 * m
+                corr = resid1.corr(resid2)
+                if corr > 0.95:
+                    w1 = portfolio[stock_codes[i]]["weight"]
+                    w2 = portfolio[stock_codes[j]]["weight"]
+                    loser = stock_codes[j] if w1 >= w2 else stock_codes[i]
+                    to_remove.add(loser)
+
+        if to_remove and (len(stock_codes) - len(to_remove)) >= 3:
+            for c in to_remove:
+                del portfolio[c]
+            total = sum(p["weight"] for p in portfolio.values())
+            if total > 0:
+                for p in portfolio.values():
+                    p["weight"] = round(p["weight"] / total, 4)
+
+        return portfolio
+
+    def _apply_risk_controls(self, portfolio: Dict, curr_date: str = None) -> tuple:
+        """应用风险控制：关键词去重 + 残差相关性去重 + 比例钳制"""
         warnings_list = []
 
         # 兜底去重：同指数/同关键词的ETF只保留一个（合并权重到最高分者）
@@ -844,13 +918,16 @@ class PortfolioAgent:
             by_tag[tag].append((code, p["weight"]))
         for tag, items in by_tag.items():
             if len(items) > 1:
-                # 保留权重最高的，合并其他权重
                 items.sort(key=lambda x: x[1], reverse=True)
                 keeper = items[0][0]
                 merged_w = sum(w for _, w in items)
                 portfolio[keeper]["weight"] = merged_w
                 for code, _ in items[1:]:
                     del portfolio[code]
+
+        # 残差相关性去重（仅股票类内，22日滚动，阈值0.95）
+        if curr_date:
+            portfolio = self._dedup_correlation(portfolio, curr_date)
 
         stock_ratio = sum(p["weight"] for p in portfolio.values() if p["type"] == "Stock")
         gold_ratio = sum(p["weight"] for p in portfolio.values() if p["type"] == "Commodity")
@@ -1042,87 +1119,6 @@ class MacroDrivenETFAgent(ETFAgentBase):
             warnings.warn(f"ETF scoring failed: {e}")
             return {}
 
-    def _dedup_correlation(self, portfolio: dict, curr_date: str) -> dict:
-        """残差相关性去重：仅股票类内，22日滚动，阈值0.95，至少保留3只"""
-        stock_codes = [c for c, p in portfolio.items() if p.get("type") == "Stock"]
-        if len(stock_codes) < 4:
-            return portfolio  # 股票ETF少于4只，无需去重
-
-        # 获取22日收盘价（含市场基准510300）
-        codes_to_fetch = list(set(stock_codes + ["510300"]))
-        try:
-            from src.data.local_store import get_bars
-            bars = get_bars(codes_to_fetch, days=30)
-            if not bars:
-                return portfolio
-            # 合并为统一DataFrame
-            frames = []
-            for c, df in bars.items():
-                df2 = df[['close']].copy()
-                df2['code'] = c
-                df2 = df2.reset_index().rename(columns={'index': 'date'})
-                frames.append(df2)
-            if not frames:
-                return portfolio
-            raw = pd.concat(frames, ignore_index=True)
-            raw["date"] = pd.to_datetime(raw["date"])
-        except:
-            return portfolio
-
-        # 市场基准收益率
-        mkt = raw[raw["code"] == "510300"]
-        if len(mkt) < 22:
-            return portfolio
-        mkt_ret = mkt["close"].tail(22).pct_change().dropna()
-        if len(mkt_ret) < 15:
-            return portfolio
-
-        # 逐对比较残差相关
-        to_remove = set()
-        for i in range(len(stock_codes)):
-            if stock_codes[i] in to_remove:
-                continue
-            for j in range(i + 1, len(stock_codes)):
-                if stock_codes[j] in to_remove:
-                    continue
-                s1 = raw[raw["code"] == stock_codes[i]]
-                s2 = raw[raw["code"] == stock_codes[j]]
-                if len(s1) < 22 or len(s2) < 22:
-                    continue
-                r1_raw = s1["close"].tail(22).pct_change()
-                r2_raw = s2["close"].tail(22).pct_change()
-                if r1_raw.count() < 15 or r2_raw.count() < 15:
-                    continue
-                # 对齐日期：取三组收益率的日期交集
-                common = r1_raw.dropna().index.intersection(r2_raw.dropna().index).intersection(mkt_ret.index)
-                if len(common) < 15:
-                    continue
-                r1 = r1_raw[common]
-                r2 = r2_raw[common]
-                m = mkt_ret[common]
-                beta1 = np.cov(r1, m)[0, 1] / np.var(m) if np.var(m) > 0 else 1
-                beta2 = np.cov(r2, m)[0, 1] / np.var(m) if np.var(m) > 0 else 1
-                resid1 = r1 - beta1 * m
-                resid2 = r2 - beta2 * m
-                corr = resid1.corr(resid2)
-                if corr > 0.95:
-                    w1 = portfolio[stock_codes[i]]["weight"]
-                    w2 = portfolio[stock_codes[j]]["weight"]
-                    loser = stock_codes[j] if w1 >= w2 else stock_codes[i]
-                    to_remove.add(loser)
-
-        # 执行去重：至少保留3只
-        if to_remove and (len(stock_codes) - len(to_remove)) >= 3:
-            for c in to_remove:
-                del portfolio[c]
-            total = sum(p["weight"] for p in portfolio.values())
-            if total > 0:
-                for p in portfolio.values():
-                    p["weight"] = round(p["weight"] / total, 4)
-            print(f"[去重] 移除{len(to_remove)}只高相关ETF: {to_remove}")
-
-        return portfolio
-
     def set_etf_universe(self, universe: dict):
         """设置动态ETF宇宙（绕过基类签名检查）"""
         self._etf_universe = universe
@@ -1168,10 +1164,7 @@ class MacroDrivenETFAgent(ETFAgentBase):
         prev = getattr(self, '_prev_codes', None)
         decision = self.portfolio_agent.decide(macro_analysis, etf_scores=etf_scores,
                                                etf_universe=etf_universe,
-                                               current_codes=prev)
-
-        # 残差相关性去重（股票类内，22日滚动，阈值0.95）
-        decision["portfolio"] = self._dedup_correlation(decision["portfolio"], curr_date)
+                                               current_codes=prev, curr_date=curr_date)
 
         # 转换为持仓格式
         portfolio = decision["portfolio"]
