@@ -1347,14 +1347,16 @@ with tab_signal:
             with open(sl_log_path, "r", encoding="utf-8") as f:
                 sl_log = json.load(f)
             events = sl_log.get("events", [])
+            st.divider()
+            st.subheader(f"🛑 止损触发记录 ({len(events)} 次)")
             if events:
-                st.divider()
-                st.subheader(f"🛑 止损触发记录 ({len(events)} 次)")
                 ed = [{"时间": e["time"], "代码": e["code"], "名称": e.get("name",""),
                        "数量": e.get("qty",0), "成交价": e.get("price",0),
                        "回撤": f"{e.get('drawdown',0):.1f}%", "类型": e.get("reason","")}
                       for e in events]
                 st.dataframe(pd.DataFrame(ed), use_container_width=True, hide_index=True)
+            else:
+                st.caption("暂无触发")
         except Exception:
             pass
 
