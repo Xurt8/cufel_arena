@@ -416,11 +416,12 @@ def run_stoploss(C):
             acct_rows = get_trade_detail_data(account, "stock", "account")
             if acct_rows and tw:
                 bal = float(getattr(acct_rows[0], "m_dBalance", 0))
-                tick_all = C.get_full_tick(list(g.holdings.keys()))
+                tick_all = C.get_full_tick([code_to_qmt(c) if "." not in c else c for c in g.holdings])
                 total_mv = 0
                 for qc, sh in g.holdings.items():
-                    if tick_all and qc in tick_all:
-                        total_mv += sh * tick_all[qc].get("lastPrice", 0)
+                    qmt = code_to_qmt(qc) if "." not in qc else qc
+                    if tick_all and qmt in tick_all:
+                        total_mv += sh * tick_all[qmt].get("lastPrice", 0)
                 available_cash = bal - total_mv
                 if available_cash > 2000:
                     redeploy_cash(C, available_cash)
