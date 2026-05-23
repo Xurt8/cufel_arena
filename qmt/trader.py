@@ -377,6 +377,31 @@ def run_stoploss(C):
 
         print(f"[{time_str}] monitoring={active} triggered={len(g.sold_codes)}")
 
+    # Auto-redeploy idle cash every ~5 min
+    if g.holdings and now.minute % 5 == 0:
+        try:
+            tw = (g.orders or {}).get("target_weights", {})
+            acct_rows = get_trade_detail_data(account, "stock", "account")
+            if acct_rows and tw:
+                bal = float(getattr(acct_rows[0], "m_dBalance", 0))
+                tick_all = C.get_full_tick(list(g.holdings.keys()))
+                total_mv = 0
+                for qc, sh in g.holdings.items():
+                    if tick_all and qc in tick_all:
+                        total_mv += sh * tick_all[qc].get("lastPrice", 0)
+                available_cash = bal - total_mv
+                if available_cash > 2000:  # > 2000 yuan, redeploy
+                    targets = dict(tw)
+                    hold_targets = [c for c in targets if c in g.holdings or code_to_qmt(c) in g.holdings]
+                    if not hold_targets:
+                        hold_targets = sorted(targets, key=targets.get, reverse=True)[:2]
+                    n = min(len(hold_targets), 2)
+                    for tc in hold_targets[:n]:
+                        tq = code_to_qmt(tc)
+                        do_buy(C, tq, int(available_cash / n), "auto_cash")
+                    print(f"[{time_str}] [CASH] redeployed {available_cash:.0f}yuan -> {n} targets")
+        except: pass
+
 def run_rebalance(C):
 
     """D1"""
