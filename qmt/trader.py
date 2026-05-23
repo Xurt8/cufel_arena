@@ -782,6 +782,7 @@ def _verify_rebalance(C, target_weights, today, batch_path, batch_state):
 def export_holdings(C):
     """Export holdings to JSON with totalAssets from C context"""
     if not g.holdings: return
+    print("[DEBUG] C.totalAssets = " + str(getattr(C, 'totalAssets', 'NOT_FOUND')))
     try:
         d = get_script_dir()
         hold_report = {
