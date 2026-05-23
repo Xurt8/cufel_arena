@@ -238,20 +238,41 @@ def compute_stoploss(code, cost, cycle_phase=None):
     bars = get_bars([code], days=120)
     if code not in bars or bars[code] is None or len(bars[code]) < 10:
         tp = TRAIL_PROFIT.get(cycle_phase, 0.30) if cycle_phase else 0.30
-        return {'stop_price': round(cost * 0.92, 3), 'peak': cost, 'threshold_pct': 8,
+        return {'stop_price': round(cost * 0.90, 3), 'peak': cost, 'threshold_pct': 10,
                 'trail_profit_pct': round(tp * 100, 1), 'trail_profit_price': round(cost * (1 - tp), 3)}
-    df = bars[code]; closes = df['close'].values
-    rets = np.diff(np.log(closes[closes > 0]))
-    ann_vol = float(np.std(rets) * np.sqrt(252)) if len(rets) > 5 else 0.3
-    threshold_pct = round(max(8, min(20, ann_vol * 100 / 2)), 1)
-    recent = list(closes[-60:]) if len(closes) >= 60 else list(closes)
-    recent.reverse(); continuous = []
-    for p in recent:
-        if not continuous or abs(p / continuous[-1] - 1) < 0.5: continuous.append(p)
-        else: break
-    peak = float(max(continuous)) if continuous else float(closes[-1])
-    if cost > 0 and cost > peak: peak = cost
+
+    df = bars[code]
+    closes = df['close'].values
+    rets = np.diff(np.log(np.maximum(closes, 0.001)))
+
+    # 1. 异常单日波动过滤(>15%=除权/分拆/数据错误)
+    bad_mask = np.abs(rets) >= np.log(1.15)
+    clean_rets = rets[~bad_mask]
+    if len(clean_rets) < 20:
+        clean_rets = rets[-60:]
+
+    # 2. Winsorize (3σ)
+    if len(clean_rets) >= 10:
+        mu, sigma = np.mean(clean_rets), np.std(clean_rets)
+        clean_rets = np.clip(clean_rets, mu - 3 * sigma, mu + 3 * sigma)
+
+    # 3. 年化波动率 → 止损阈值 = 1σ年化, 区间[10%, 25%]
+    ann_vol = float(np.std(clean_rets) * np.sqrt(252)) if len(clean_rets) > 5 else 0.3
+    threshold_pct = round(max(10, min(25, ann_vol * 100)), 1)
+
+    # 4. Peak: 如有分拆/除权，只用事件后的数据
+    bad_idx = np.where(bad_mask)[0]
+    if len(bad_idx) > 0:
+        split_pos = bad_idx[-1] + 1  # closes 中的位置 (rets[i] = close[i+1]/close[i])
+        peak_closes = closes[split_pos:]
+    else:
+        peak_closes = closes
+    n60 = min(60, len(peak_closes))
+    peak = float(np.median(np.sort(peak_closes[-n60:])[-3:])) if n60 >= 3 else float(peak_closes[-1])
+    if cost > 0 and cost > peak:
+        peak = cost
     stop_price = round(peak * (1 - threshold_pct / 100), 3)
+
     # 全周期 trailing profit
     tp = TRAIL_PROFIT.get(cycle_phase, 0.30) if cycle_phase else 0.30
     tp_price = round(peak * (1 - tp), 3)
