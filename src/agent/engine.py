@@ -646,9 +646,12 @@ class PortfolioAgent:
                 return idx
         return name
 
-    @staticmethod
-    def _score_etf(metrics: dict) -> float:
+    SCORE_WEIGHTS = {"mom": 0.30, "vol": 0.30, "sharpe": 0.25, "flow": 0.15}
+
+    @classmethod
+    def _score_etf(cls, metrics: dict) -> float:
         """统一因子评分 — 动量+低波+夏普+量比，同类内部排序"""
+        w = cls.SCORE_WEIGHTS
         mom = max(-0.5, min(0.5, metrics.get('mom_60d', 0))) + 0.5
         vol = metrics.get('ann_vol', 0.3)
         vol_s = max(0, 1 - vol / 0.6) if vol > 0 else 0.5
@@ -656,7 +659,7 @@ class PortfolioAgent:
         # 量比: 5日均量/20日均量, >1=放量活跃(flow proxy)
         turnover = metrics.get('turnover', 1.0)
         flow_s = min(1.5, max(0.5, turnover)) / 1.5
-        return mom * 0.30 + vol_s * 0.30 + sharpe * 0.25 + flow_s * 0.15
+        return mom * w["mom"] + vol_s * w["vol"] + sharpe * w["sharpe"] + flow_s * w["flow"]
 
     def _select_etfs(self, class_type: str, target_weight: float,
                      scores: dict, confidence: float,
