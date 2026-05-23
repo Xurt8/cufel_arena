@@ -272,68 +272,170 @@ class DataAgent:
 # ==================== MacroAgent ====================
 
 class MacroAgent:
-    """宏观分析Agent - LLM优先 + 规则兜底"""
+    """宏观分析Agent — 七维指标框架(VibeCodingPrompts规范)"""
 
-    # 优先环境变量，回退硬编码
     LLM_URL = os.getenv("LLM_API_BASE", "https://api.deepseek.com/v1") + "/chat/completions"
     LLM_KEY = os.getenv("LLM_API_KEY", "sk-63010d7a99a245fa992eb68a89d01f97")
     LLM_MODEL = os.getenv("MODEL_NAME", "deepseek-chat")
 
+    SYSTEM_PROMPT = """你是一位拥有20年经验的资深宏观经济学家，曾任央行货币政策委员会委员、主权基金首席投资官。
+
+专业领域：
+- 中国制造业PMI指标体系及经济周期研究
+- CPI/PPI价格体系与通胀传导机制
+- M2货币供应与信用扩张的资产定价影响
+- 社融数据解读与未来需求预测
+- 基于多维宏观数据的资产配置策略
+
+## 数据时效性说明（重要）
+
+各宏观指标的发布时间存在差异，因此同一决策日期下不同指标的数据时点可能相差1-2个月：
+- PMI：次月1日可用，数据时效最新
+- CPI/PPI：次月10日可用
+- M2/社融：次月15日可用，滞后最长
+- GDP：季末后第16日可用（季度数据，更新最慢）
+
+分析时请注意各指标的"数据时点"标注，优先参考时效最新的指标（PMI）作为当前景气锚点。
+
+## 宏观分析框架
+
+**景气信号（PMI）：**
+- PMI > 50：制造业扩张，经济景气
+- PMI < 50：制造业收缩，经济承压
+- 趋势比绝对值更重要：连续3月上行是强复苏信号
+
+**价格信号（CPI/PPI）：**
+- CPI > 3%：通胀过热，警惕滞胀
+- PPI > CPI：上游涨价无法传导，企业利润受压
+- PPI 通缩（< 0）+ CPI 低位：需求不足，衰退风险
+
+**流动性信号（M2/SHIBOR）：**
+- M2 增速 > 10%：货币宽松，利好资产价格
+- SHIBOR 持续下行：央行宽松，流动性充裕
+
+**信用信号（社融/GDP）：**
+- 社融增量领先实体经济 3-6 个月
+- 社融增速加速 -> 未来增长动能增强
+
+**周期四象限判断：**
+1. 复苏期：PMI 回升 + CPI 低位 + 社融改善 + SHIBOR 较低
+2. 扩张期：PMI > 50 稳定 + CPI 温和 + M2/社融旺盛
+3. 滞胀期：PMI > 50 但下滑 + CPI 高位 + PPI 高位
+4. 衰退期：PMI < 50 持续 + CPI/PPI 下行 + 社融萎缩
+
+## 输出要求
+请基于提供的多维宏观数据，给出专业的周期判断和资产配置建议。
+分析要专业、简洁，像给投资委员会汇报。必须用具体数值支撑判断。"""
+
     def __init__(self, use_llm: bool = False):
         self.use_llm = use_llm
-        self._llm_cache = {}  # {date_str: {cycle, confidence, ...}}
+        self._llm_cache = {}
+
+    def _describe_trend(self, history: list, name: str) -> str:
+        """描述指标趋势"""
+        if len(history) < 2:
+            return f"{name}数据不足"
+
+        recent = history[-3:] if len(history) >= 3 else history
+        diff = recent[-1] - recent[0]
+
+        if name == "PMI":
+            threshold = 0.3
+        elif name in ("CPI", "PPI"):
+            threshold = 0.5
+        else:
+            threshold = 0.2
+
+        if diff > threshold:
+            return f"近{len(recent)}月上升趋势（{recent[0]}->{recent[-1]}，+{diff:.1f}）"
+        elif diff < -threshold:
+            return f"近{len(recent)}月下行趋势（{recent[0]}->{recent[-1]}，{diff:.1f}）"
+        else:
+            return f"近{len(recent)}月基本持平（{recent[0]}->{recent[-1]}）"
+
+    def _build_macro_summary(self, macro_data) -> str:
+        """构建宏观指标摘要"""
+        import math
+        sf_str = f"{macro_data.sf_month:.0f}" if not math.isnan(macro_data.sf_month) else "N/A"
+        sf_hist = [f"{v:.0f}" for v in macro_data.sf_history] if macro_data.sf_history else []
+        gdp_str = f"{macro_data.gdp_yoy}%" if not math.isnan(macro_data.gdp_yoy) else "N/A"
+
+        pmi_date_str = macro_data.pmi_date.strftime('%Y-%m') if macro_data.pmi_date else 'N/A'
+        cpi_date_str = macro_data.cpi_date.strftime('%Y-%m') if macro_data.cpi_date else 'N/A'
+        ppi_date_str = macro_data.ppi_date.strftime('%Y-%m') if macro_data.ppi_date else 'N/A'
+        shibor_date_str = macro_data.shibor_date.strftime('%Y-%m-%d') if macro_data.shibor_date else 'N/A'
+
+        return f"""
+## 宏观指标快照
+
+### 景气指数
+- 制造业PMI：{macro_data.pmi}（数据时点：{pmi_date_str}）
+  近6月走势：{macro_data.pmi_history}
+  趋势：{self._describe_trend(macro_data.pmi_history, 'PMI')}
+
+### 价格指标
+- CPI同比：{macro_data.cpi_yoy}%（数据时点：{cpi_date_str}）
+  近6月：{macro_data.cpi_history}
+- PPI同比：{macro_data.ppi_yoy}%（数据时点：{ppi_date_str}）
+  近6月：{macro_data.ppi_history}
+
+### 流动性
+- M2同比：{macro_data.m2_yoy}%（近6月：{macro_data.m2_history}）
+- SHIBOR 1m：{macro_data.shibor_1m}%，3m：{macro_data.shibor_3m}%
+  （数据时点：{shibor_date_str}）
+
+### 信用与增长
+- 社融增量当月：{sf_str}亿元
+  近6月：{sf_hist}亿元
+- GDP当季同比：{gdp_str}（{macro_data.gdp_quarter}）
+"""
 
     def _analyze_llm(self, macro_data) -> Dict:
         """调用 LLM 判断经济周期，失败时返回 None"""
         import requests, math
 
-        # 检查缓存（用日期字符串做key）
         dt = getattr(macro_data, 'decision_date', None)
         date_str = dt.strftime("%Y-%m-%d") if dt else ''
         if date_str and date_str in self._llm_cache:
             return self._llm_cache[date_str]
 
-        pmi = macro_data.pmi
-        cpi = macro_data.cpi_yoy if not math.isnan(macro_data.cpi_yoy) else 0
-        m2 = macro_data.m2_yoy if not math.isnan(macro_data.m2_yoy) else 8
-        ppi = macro_data.ppi_yoy if not math.isnan(macro_data.ppi_yoy) else 0
-        sf = macro_data.sf_month if not math.isnan(macro_data.sf_month) else 0
-        gdp = macro_data.gdp_yoy if not math.isnan(macro_data.gdp_yoy) else 0
-        shibor = macro_data.shibor_3m if not math.isnan(macro_data.shibor_3m) else 2
+        macro_summary = self._build_macro_summary(macro_data)
 
-        prompt = (
-            f"你是一位宏观经济学家。根据以下中国经济数据，判断当前经济周期阶段。\n\n"
-            f"数据：PMI={pmi:.1f}（50=荣枯线） CPI={cpi:.1f}% M2={m2:.1f}% "
-            f"PPI={ppi:.1f}% 社融={sf:.0f}亿 GDP={gdp:.1f}% SHIBOR_3M={shibor:.3f}\n\n"
-            f"请严格按以下格式回复（不要有任何多余文字）：\n"
-            f"周期: [扩张期/复苏期/滞胀期/衰退期]\n"
-            f"置信度: [0.0-1.0的小数]\n"
-            f"理由: [一句话]"
-        )
+        prompt = f"""决策日期：{date_str}
+
+{macro_summary}
+
+请判断当前经济周期阶段（复苏期/扩张期/滞胀期/衰退期）并给出投资建议。
+
+请严格按以下格式回复（不要有任何多余文字）：
+周期: [阶段]
+置信度: [0.0-1.0的小数]
+分析: [200字以内，引用具体数值]
+投资建议: [一句话资产配置建议]"""
 
         try:
             r = requests.post(self.LLM_URL,
                 headers={"Authorization": f"Bearer {self.LLM_KEY}", "Content-Type": "application/json"},
                 json={"model": self.LLM_MODEL,
-                      "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": 100, "temperature": 0.3},
-                timeout=25)
+                      "messages": [{"role": "system", "content": self.SYSTEM_PROMPT},
+                                   {"role": "user", "content": prompt}],
+                      "max_tokens": 400, "temperature": 0.2},
+                timeout=30)
             if r.status_code != 200:
                 return None
 
             text = r.json()["choices"][0]["message"]["content"]
-            cycle = None; conf = 0.7
 
-            # 宽容解析：匹配标准词或近义词
+            cycle = None; conf = 0.7; analysis = ""; implication = ""
             cycle_map = {
                 "扩张": "扩张期", "膨胀": "扩张期", "繁荣": "扩张期", "过热": "扩张期",
                 "复苏": "复苏期", "回升": "复苏期", "回暖": "复苏期",
                 "滞胀": "滞胀期", "滞涨": "滞胀期", "放缓": "滞胀期",
                 "衰退": "衰退期", "收缩": "衰退期", "萧条": "衰退期", "低迷": "衰退期",
             }
-            for line in text.replace("：", ":").split("\n"):
+            for line in text.replace("\uff1a", ":").split("\n"):
                 line = line.strip()
-                if "周期" in line and ":" in line:
+                if ("周期" in line or "阶段" in line) and ":" in line:
                     keyword = line.split(":")[-1].strip()
                     for k, v in cycle_map.items():
                         if k in keyword: cycle = v; break
@@ -342,15 +444,22 @@ class MacroAgent:
                         val = line.split(":")[-1].strip().split()[0]
                         conf = float(val)
                     except: pass
+                if ("分析" in line or "理由" in line) and ":" in line:
+                    analysis = line.split(":", 1)[-1].strip()[:200]
+                if ("建议" in line or "投资" in line) and ":" in line:
+                    implication = line.split(":", 1)[-1].strip()
 
             if cycle is None:
-                return None  # 解析失败
+                return None
+
+            if not analysis:
+                analysis = text.strip()[:200]
 
             result = {
                 "cycle_phase": cycle,
                 "confidence": conf,
-                "analysis": text.strip()[:200],
-                "investment_implication": "",
+                "analysis": analysis,
+                "investment_implication": implication,
                 "risk_factors": [],
                 "metadata": {"source": "llm", "score": 0}
             }
@@ -360,101 +469,98 @@ class MacroAgent:
         except Exception:
             return None
 
-    def analyze(self, macro_data) -> Dict:
-        """LLM优先判断经济周期，失败时回退到PMI三维度规则（IHS/ISM标准）"""
+    def _fallback_analyze(self, macro_data) -> Dict:
+        """规则兜底分析（当 LLM 不可用时）"""
+        import math
 
-        if self.use_llm:
-            llm_result = self._analyze_llm(macro_data)
-            if llm_result is not None:
-                return llm_result
+        score = 0
 
-        # PMI三维度打法（IHS Markit/ISM标准）
-        # 维度1: 水平 — 当前PMI在什么位置
-        # 维度2: 方向 — PMI最近3个月是上升还是下降
-        # 维度3: 加速度 — 方向本身在加速还是减速（二阶导）
-        pmi = macro_data.pmi
-        history = macro_data.pmi_history
-
-        # 维度1: 水平 (0=收缩, 1=临界, 2=扩张)
-        if pmi >= 51.0: level = 2
-        elif pmi >= 49.5: level = 1
-        else: level = 0
-
-        # 维度2: 方向 (-1=下降, 0=持平, 1=上升) — 放宽阈值
-        if len(history) >= 4:
-            ma3 = sum(history[-3:]) / 3
-            ma3_prev = sum(history[-4:-1]) / 3 if len(history) >= 4 else ma3
-            diff = ma3 - ma3_prev
-            if diff > 0.2: direction = 1
-            elif diff < -0.2: direction = -1
-            else: direction = 0
+        # PMI信号（权重最高，计2分）
+        if macro_data.pmi > 51:
+            score += 2
+        elif macro_data.pmi > 50:
+            score += 1
+        elif macro_data.pmi > 48:
+            score -= 1
         else:
-            direction = 0
+            score -= 2
 
-        # 维度3: 加速度 — 同上放宽
-        if len(history) >= 7:
-            recent_3 = sum(history[-3:]) / 3
-            mid_3 = sum(history[-5:-2]) / 3 if len(history) >= 5 else recent_3
-            accel = (recent_3 - mid_3) - (mid_3 - sum(history[-7:-4]) / 3 if len(history) >= 7 else mid_3)
-            if accel > 0.1: acceleration = 1
-            elif accel < -0.1: acceleration = -1
-            else: acceleration = 0
-        else:
-            acceleration = 0
+        # PMI趋势
+        if len(macro_data.pmi_history) >= 2:
+            score += 1 if macro_data.pmi_history[-1] > macro_data.pmi_history[0] else -1
 
-        # 三维度投票
-        signals = [level - 1, direction, acceleration]
-        bull_score = sum(1 for s in signals if s > 0)
-        bear_score = sum(1 for s in signals if s < 0)
-
-        # CPI通胀压力（中国CPI偏低，阈值适当下调）
-        cpi_pressure = 0
+        # CPI/PPI信号
         if not math.isnan(macro_data.cpi_yoy):
-            cpi = macro_data.cpi_yoy
-            if cpi > 1.5: cpi_pressure = 1
-            elif cpi < 0.0: cpi_pressure = -1
+            if macro_data.cpi_yoy > 3.0:
+                score += 1
+            elif macro_data.cpi_yoy < 0:
+                score -= 1
 
-        # 信贷环境
-        credit = 0
+        # M2信号
         if not math.isnan(macro_data.m2_yoy):
-            m2 = macro_data.m2_yoy
-            if m2 > 10.0: credit = 1
-            elif m2 < 7.5: credit = -1
+            if macro_data.m2_yoy > 10:
+                score += 1
+            elif macro_data.m2_yoy < 7:
+                score -= 1
 
-        # 综合判定（滞回保护：同一周期不轻易切换）
-        prev = getattr(self, '_prev_cycle', '')
-        implication = ""
-        if bear_score >= 2 and cpi_pressure > 0:
-            cycle, conf = "滞胀期", 0.75
-        elif bear_score >= 2 and cpi_pressure <= 0:
-            cycle, conf = "衰退期", 0.75
-        elif bear_score >= 1 and credit <= -1:
-            cycle, conf = "衰退期", 0.65
-        elif bull_score >= 2 and cpi_pressure >= 0:
+        # 社融信号
+        sf_hist = macro_data.sf_history
+        if sf_hist and len(sf_hist) >= 2:
+            sf_avg = sum(sf_hist[:-1]) / (len(sf_hist) - 1) if len(sf_hist) > 1 else sf_hist[0]
+            if not math.isnan(macro_data.sf_month) and sf_avg > 0:
+                score += 1 if macro_data.sf_month > sf_avg * 1.1 else (-1 if macro_data.sf_month < sf_avg * 0.9 else 0)
+
+        # 周期判断
+        if score >= 4:
             cycle, conf = "扩张期", 0.75
-        elif bull_score >= 2 and cpi_pressure > 0:
-            cycle, conf = "滞胀期", 0.60  # 扩张+通胀=滞胀风险
-        elif bull_score >= 1 and credit >= 0:
-            cycle, conf = "复苏期", 0.65
-        elif bull_score >= 1 and cpi_pressure > 0:
+            implication = "经济繁荣，建议重仓股票资产，适当减少债券"
+        elif score >= 1:
+            cycle, conf = "复苏期", 0.60
+            implication = "经济回暖，建议增配股票，保留部分债券防御"
+        elif score >= -2:
             cycle, conf = "滞胀期", 0.55
-        elif cpi_pressure <= 0 and credit >= 0:
-            cycle, conf = "复苏期", 0.50
+            implication = "经济放缓，建议平衡配置，增持黄金对冲通胀"
         else:
-            cycle, conf = "滞胀期", 0.45
-        if prev == cycle and conf < 0.75:
-            conf += 0.05
-        self._prev_cycle = cycle
+            cycle, conf = "衰退期", 0.70
+            implication = "经济收缩，建议防御配置，重仓债券和黄金"
 
-        dim_detail = f"L{level}D{direction:+d}A{acceleration:+d}"
+        pmi_date_str = macro_data.pmi_date.strftime("%Y-%m-%d") if macro_data.pmi_date else ""
+
         return {
             "cycle_phase": cycle,
             "confidence": conf,
-            "analysis": f"PMI={pmi} {dim_detail} bull={bull_score} bear={bear_score} CPI={macro_data.cpi_yoy}% M2={macro_data.m2_yoy}%",
+            "analysis": f"PMI={macro_data.pmi}, CPI同比={macro_data.cpi_yoy}%, PPI同比={macro_data.ppi_yoy}%, M2增速={macro_data.m2_yoy}%，基于规则打分({score}分)判断为{cycle}",
+            "cpi_signal": f"CPI同比{macro_data.cpi_yoy}%, PPI同比{macro_data.ppi_yoy}%",
+            "liquidity_signal": f"M2增速{macro_data.m2_yoy}%, SHIBOR-1m {macro_data.shibor_1m}%",
+            "credit_signal": f"社融当月{macro_data.sf_month:.0f}亿, GDP增速{macro_data.gdp_yoy}%",
             "investment_implication": implication,
-            "risk_factors": [],
-            "metadata": {"input_pmi": pmi, "source": "pmi_3d", "dimensions": dim_detail}
+            "risk_factors": ["LLM调用异常，使用规则兜底"],
+            "key_signals": [
+                f"PMI={macro_data.pmi}",
+                f"CPI同比={macro_data.cpi_yoy}%",
+                f"PPI同比={macro_data.ppi_yoy}%",
+                f"M2增速={macro_data.m2_yoy}%"
+            ],
+            "metadata": {
+                "input_pmi": macro_data.pmi,
+                "input_date": pmi_date_str,
+                "source": "fallback",
+                "score": score
+            }
         }
+
+    def analyze(self, macro_data) -> Dict:
+        """主分析方法：LLM优先，规则兜底"""
+        if not self.use_llm:
+            return self._fallback_analyze(macro_data)
+        try:
+            result = self._analyze_llm(macro_data)
+            if result is not None:
+                return result
+            return self._fallback_analyze(macro_data)
+        except Exception as e:
+            print(f"LLM分析失败，使用兜底逻辑: {e}")
+            return self._fallback_analyze(macro_data)
 
 
 # ==================== PortfolioAgent ====================
@@ -483,7 +589,24 @@ class PortfolioAgent:
         "max_gold_ratio": 0.45,
     }
 
-    # 去重：同SW1行业的ETF只保留得分最高的（替代关键词匹配）
+    # 去重关键词（非股票类ETF用，股票类优先SW1行业）
+    INDEX_PATTERNS = [
+        ("黄金", "黄金"), ("上海金", "黄金"),
+        ("国债", "国债"), ("城投债", "城投债"), ("转债", "可转债"),
+        ("信用债", "信用债"), ("短融", "短融"),
+        ("货币", "货币"), ("添益", "货币"),
+        ("科创50", "科创50"), ("科创综指", "科创50"), ("科创100", "科创50"),
+        ("科创半导体", "科创芯片"), ("半导体", "芯片"), ("芯片", "芯片"),
+        ("消费电子", "消费电子"), ("消电", "消费电子"),
+        ("A500", "A500"), ("沪深300", "沪深300"), ("中证500", "中证500"),
+        ("创业板", "创业板"), ("上证50", "上证50"),
+        ("红利", "红利"), ("证券", "证券"), ("银行", "银行"),
+        ("新能源", "新能源"), ("光伏", "新能源"),
+        ("医药", "医药"), ("医疗", "医药"),
+        ("军工", "军工"), ("通信", "通信"), ("5G", "通信"),
+        ("汽车", "汽车"), ("机器人", "机器人"),
+        ("港股", "港股"), ("恒生", "港股"),
+    ]
     _sector_map = None
 
     @classmethod
@@ -515,8 +638,11 @@ class PortfolioAgent:
 
     @classmethod
     def _extract_index(cls, name: str) -> str:
-        """去重标识：优先SW1行业，回退名称"""
-        return name  # 由 _select_etfs 内的 sector_map 逻辑处理
+        """去重标识：按 INDEX_PATTERNS 关键词匹配"""
+        for kw, idx in cls.INDEX_PATTERNS:
+            if kw in name:
+                return idx
+        return name
 
     @staticmethod
     def _score_etf(metrics: dict) -> float:

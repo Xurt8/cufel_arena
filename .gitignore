@@ -43,3 +43,6 @@ stock_daily_*.csv
 # OS
 .DS_Store
 Thumbs.db
+data/etf_daily.parquet
+data/_sync_pending.csv
+data/_old_data.csv
