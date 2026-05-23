@@ -434,7 +434,7 @@ def run_rebalance(C):
 
     try:
 
-        acct_rows = get_trade_detail_data(g.acct, g.acct_type, 'account')
+        acct_rows = get_trade_detail_data(account, "stock", 'account')
 
         if acct_rows:
 
@@ -805,7 +805,7 @@ def init(C):
 
             # 
 
-            pos_rows = get_trade_detail_data(g.acct, g.acct_type, "position")
+            pos_rows = get_trade_detail_data(account, "stock", "position")
 
             pos_map = {}
 
@@ -833,21 +833,13 @@ def init(C):
 
                 code = qmt_code.split(".")[0]
 
-                tick = C.get_full_tick([qmt_code])
-
-                price = 0
-
-                if tick and qmt_code in tick:
-
-                    t = tick[qmt_code]
-
-                    price = t.get("lastPrice", 0)
-
                 pnl = pos_map.get(code, {})
+
+                price = pnl.get("mv", 0) / shares if pnl.get("mv", 0) > 0 and shares > 0 else 0
 
                 hold_report["positions"].append({
 
-                    "code": code, "shares": shares, "price": price,
+                    "code": code, "shares": shares, "price": round(price, 3),
 
                     "cost": pnl.get("cost", 0), "profit": pnl.get("profit", 0),
 
@@ -1001,7 +993,7 @@ def on_order_check(C):
 
     try:
 
-        orders = get_trade_detail_data(g.acct, g.acct_type, "order")
+        orders = get_trade_detail_data(account, "stock", "order")
 
     except:
 
@@ -1035,7 +1027,7 @@ def on_order_check(C):
 
                     try:
 
-                        cancel(str(o.m_strOrderSysID), g.acct, g.acct_type, C)
+                        cancel(str(o.m_strOrderSysID), account, "stock", C)
 
                         print(f"  [] {code} x{vol} {elapsed:.0f}s")
 
