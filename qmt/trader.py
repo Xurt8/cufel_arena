@@ -848,7 +848,7 @@ def init(C):
 
                 json.dump(hold_report, f, ensure_ascii=False)
 
-            print(f"  [] qmt_holdings.json")
+            print(f"  [Export] qmt_holdings.json")
 
         except: pass
 
