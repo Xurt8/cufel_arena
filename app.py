@@ -127,48 +127,35 @@ def _extract_holdings_from_df(raw_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_actual_holdings():
-    """加载实际持仓：优先QMT实时导出, 回退到本地文件"""
+    """加载实际持仓 — 仅从QMT实时导出读取"""
     import json
     qmt_path = r"D:\长城策略交易系统\python\qmt_holdings.json"
-    if os.path.exists(qmt_path):
-        try:
-            with open(qmt_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            positions = data.get("positions", [])
-            active = [p for p in positions if p.get("shares", 0) > 0]
-            if active:
-                # 取名称和最新价
-                from src.data.local_store import get_names, get_latest_close
-                name_map = get_names()
-                all_codes = [p["code"] for p in active]
-                prices = get_latest_close(all_codes)
-                rows = []
-                for p in active:
-                    code = p["code"]
-                    price = prices.get(code, p.get("price", 0))
-                    cost = p.get("cost", price) if p.get("cost", 0) > 0 else price
-                    rows.append({
-                        "代码": code, "名称": name_map.get(code, code),
-                        "数量": p["shares"], "当前价": price,
-                        "成本价": cost, "市值": p["shares"] * price
-                    })
-                return pd.DataFrame(rows)
-        except Exception:
-            pass
-
-    xls_dir = _HOLDINGS_DIR
-    if xls_dir.exists():
-        files = sorted(xls_dir.glob("*资金股份查询*"), reverse=True)
-        if files:
-            raw = files[0].read_bytes()
-            df = parse_holdings_raw(raw, files[0].name)
-            if df is not None and len(df) > 0:
-                return df
-
-    if HOLDINGS_FILE.exists():
-        raw = HOLDINGS_FILE.read_bytes()
-        return parse_holdings_raw(raw, HOLDINGS_FILE.name)
-    return None
+    if not os.path.exists(qmt_path):
+        return None
+    try:
+        with open(qmt_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        positions = data.get("positions", [])
+        active = [p for p in positions if p.get("shares", 0) > 0]
+        if not active:
+            return None
+        from src.data.local_store import get_names, get_latest_close
+        name_map = get_names()
+        all_codes = [p["code"] for p in active]
+        prices = get_latest_close(all_codes)
+        rows = []
+        for p in active:
+            code = p["code"]
+            price = prices.get(code, p.get("price", 0))
+            cost = p.get("cost", price) if p.get("cost", 0) > 0 else price
+            rows.append({
+                "代码": code, "名称": name_map.get(code, code),
+                "数量": p["shares"], "当前价": price,
+                "成本价": cost, "市值": p["shares"] * price
+            })
+        return pd.DataFrame(rows)
+    except Exception:
+        return None
 
 # ── ETF 名称映射 ───────────────────────────────────────
 ETF_NAMES = {
