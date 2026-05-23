@@ -860,10 +860,12 @@ def init(C):
 
                 })
 
+            # Compute available cash
+            total_mv = sum(p.get("market_value", 0) for p in hold_report["positions"])
+            hold_report["available_cash"] = round(hold_report["total_balance"] - total_mv, 2)
+
             d = get_script_dir()
-
             with open(os.path.join(d, "qmt_holdings.json"), "w", encoding="utf-8") as f:
-
                 json.dump(hold_report, f, ensure_ascii=False)
 
             # Init stoploss log if not exists

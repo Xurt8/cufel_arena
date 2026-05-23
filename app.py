@@ -755,6 +755,19 @@ with tab_portfolio:
             total_pnl = total_rt_mv - total_cost
             total_pnl_pct = (total_rt_mv / total_cost - 1) * 100 if total_cost > 0 else 0
 
+            # 读取可用现金
+            available_cash = 0
+            try:
+                cash_path = r"D:\长城策略交易系统\bin.x64\qmt_holdings.json"
+                if not os.path.exists(cash_path):
+                    cash_path = r"D:\长城策略交易系统\python\qmt_holdings.json"
+                if os.path.exists(cash_path):
+                    with open(cash_path, "r", encoding="utf-8") as cf:
+                        cash_data = json.load(cf)
+                    available_cash = cash_data.get("available_cash", 0)
+            except: pass
+            total_assets = total_rt_mv + available_cash
+
             # ── 持仓总览 + 实仓表：左卡右表 ───────────
             card_w, table_w = st.columns([0.6, 4.6])
 
@@ -778,6 +791,10 @@ with tab_portfolio:
                 <div style="font-size:0.65rem; color:#86868b; margin-bottom:10px;">{total_pnl_pct:+.2f}%</div>
                 <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em;">持仓数</div>
                 <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:10px;">{len(rt_data)}</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em;">可用现金</div>
+                <div style="font-size:0.95rem; font-weight:600; color:#1d1d1f; margin-bottom:10px;">{available_cash/10000:.2f}万</div>
+                <div style="font-size:0.58rem; color:#86868b; letter-spacing:0.04em;">总资产</div>
+                <div style="font-size:1.05rem; font-weight:700; color:#1d1d1f; margin-bottom:10px;">{total_assets/10000:.1f}万</div>
                 <div style="margin-top:auto; padding-top:8px; border-top:1px solid #f5f5f7;">
                 <span style="font-size:0.58rem; color:#86868b;">{datetime.now().strftime('%H:%M:%S')}</span>
                 </div>
