@@ -476,36 +476,34 @@ def fetch_em_kline(code: str, klt: int = 101, limit: int = 120) -> pd.DataFrame:
         return pd.DataFrame()
 
 def calc_metrics(code: str) -> dict:
-    """从ClickHouse计算波动率、60日/120日位置"""
-    pos60 = pos120 = 50
-    ann_vol = 0.0
+    """从本地parquet计算 _score_etf 所需因子"""
     try:
-        for days, label in [(60, "pos60"), (120, "pos120")]:
-            sql = f"""
-                SELECT max(high * adj_factor) as hh, min(low * adj_factor) as ll,
-                       argMax(close * adj_factor, date) as last_close
-                FROM etf.etf_day WHERE code = '{code}'
-                  AND date <= today() AND date >= today() - {days}
-            """
-            df = _ch_fetch(sql)
-            if not df.empty:
-                hh, ll, last = float(df["hh"].iloc[0]), float(df["ll"].iloc[0]), float(df["last_close"].iloc[0])
-                if hh > ll and last > 0:
-                    val = (last - ll) / (hh - ll) * 100
-                else:
-                    val = 50
-                if label == "pos60": pos60 = val
-                else: pos120 = val
-
-        sql_vol = f"""
-            SELECT stddevPop(log(close * adj_factor / lagInFrame(close * adj_factor, 1) over (order by date))) * sqrt(252) as vol
-            FROM etf.etf_day WHERE code = '{code}' AND date <= today() AND date >= today() - 60
-        """
-        df_v = _ch_fetch(sql_vol)
-        ann_vol = float(df_v["vol"].iloc[0]) * 100 if not df_v.empty and df_v["vol"].iloc[0] else 0.0
+        from src.data.local_store import get_bars
+        import numpy as np
+        bars = get_bars([code], days=130)
+        if code not in bars or bars[code] is None or len(bars[code]) < 22:
+            return {"mom_60d": 0, "ann_vol": 0.3, "sharpe60": 0, "turnover": 1.0}
+        df = bars[code]
+        c = df['close'].values
+        # 60日动量
+        mom_60d = float(c[-1] / c[-61] - 1) if len(c) >= 61 else 0
+        # 年化波动率
+        r = np.diff(np.log(c[-60:])) if len(c) >= 60 else [0]
+        ann_vol = float(np.std(r) * np.sqrt(252)) if len(r) > 5 else 0.3
+        # 夏普比率60日
+        sharpe60 = float(np.mean(r) / (np.std(r) + 0.0001) * np.sqrt(252)) if len(r) > 5 else 0
+        # 量比: 5日均量/20日均量
+        vol_col = 'volume' if 'volume' in df.columns else ('vol' if 'vol' in df.columns else None)
+        if vol_col:
+            v = df[vol_col].values[-20:].astype(float)
+        else:
+            v = np.ones(20)
+        v5 = v[-5:] if len(v) >= 5 else v
+        turnover = float(np.nanmean(v5) / (np.nanmean(v) + 0.0001))
+        return {"mom_60d": round(mom_60d, 4), "ann_vol": round(ann_vol, 4),
+                "sharpe60": round(sharpe60, 4), "turnover": round(turnover, 4)}
     except Exception:
-        pass
-    return {"年化波动率": ann_vol, "60日位置": pos60, "120日位置": pos120}
+        return {"mom_60d": 0, "ann_vol": 0.3, "sharpe60": 0, "turnover": 1.0}
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1076,17 +1074,13 @@ with tab_portfolio:
                                  f"{ap:.1f}% → {sp:.1f}%",
                                  delta=f"{diff:+.1f}%")
 
-                # ── 持仓强弱评分 ──────────────────────
+                # ── 持仓强弱评分（统一 _score_etf 公式）─────────
                 scores = {}
                 for _, r in actual_df.iterrows():
                     code = str(r["代码"])
                     try:
                         m = calc_metrics(code)
-                        # 综合评分：60日位置(30%) + 120日位置(20%) + 波动率倒数(30%) + 近期动量(20%)
-                        pos60_s = m["60日位置"] / 100
-                        pos120_s = m["120日位置"] / 100
-                        vol_s = max(0, 1 - m["年化波动率"] / 50) if m["年化波动率"] > 0 else 0.5
-                        score = pos60_s * 0.40 + pos120_s * 0.30 + vol_s * 0.30
+                        score = PortfolioAgent._score_etf(m)
                     except Exception:
                         score = 0.5
                     scores[code] = score
@@ -1135,7 +1129,7 @@ with tab_portfolio:
                             "强弱": st.column_config.TextColumn(width="small"),
                             "操作": st.column_config.TextColumn(width="small"),
                         })
-                    st.caption("评分：60日位置 40% + 波动率倒数 30% + 120日位置 30% | ⭐强势 > 👍稳健 > 👎弱势")
+                    st.caption("评分：动量30% + 低波30% + 夏普25% + 量比15% | ⭐强势 > 👍稳健 > 👎弱势")
                 else:
                     st.success("各类别比例合理，无需调整")
 
