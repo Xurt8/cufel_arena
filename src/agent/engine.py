@@ -648,8 +648,14 @@ class PortfolioAgent:
                 return idx
         return name
 
-    SCORE_WEIGHTS = {"mom": 0.30, "vol": 0.30, "sharpe": 0.25, "flow": 0.15}
-    LAZY_LAMBDA = 0.0  # 惰性惩罚: hold_bonus = 1.0 + λ
+    SCORE_WEIGHTS = {"mom": 0.20, "vol": 0.45, "sharpe": 0.20, "flow": 0.15}  # default (衰退/防御)
+    CYCLE_WEIGHTS = {
+        "复苏期": {"mom": 0.35, "vol": 0.20, "sharpe": 0.25, "flow": 0.20},
+        "扩张期": {"mom": 0.25, "vol": 0.30, "sharpe": 0.25, "flow": 0.20},
+        "滞胀期": {"mom": 0.10, "vol": 0.50, "sharpe": 0.20, "flow": 0.20},
+        "衰退期": {"mom": 0.15, "vol": 0.45, "sharpe": 0.20, "flow": 0.20},
+    }
+    LAZY_LAMBDA = 0.0
 
     @classmethod
     def _score_etf(cls, metrics: dict) -> float:
@@ -777,12 +783,12 @@ class PortfolioAgent:
         return {c: (latest.loc[c, "close"], latest.loc[c, "ma200"])
                 for c in codes if c in latest.index}
 
-    def _percentile_score(self, raw: list) -> list:
-        """截面排名百分位归一化，返回 [(code, score), ...]"""
+    def _percentile_score(self, raw: list, cycle: str = None) -> list:
+        """截面排名百分位归一化，按宏观周期切换因子权重，返回 [(code, score), ...]"""
         import pandas as _pd
         if not raw: return []
+        w = self.CYCLE_WEIGHTS.get(cycle, self.SCORE_WEIGHTS) if cycle else self.SCORE_WEIGHTS
         rf = _pd.DataFrame(raw, columns=["code", "mom_60d", "ann_vol", "sharpe60", "turnover"])
-        w = self.SCORE_WEIGHTS
         rf["mom_rank"] = rf["mom_60d"].rank(pct=True)
         rf["vol_rank"] = 1 - rf["ann_vol"].rank(pct=True)
         rf["sh_rank"] = rf["sharpe60"].rank(pct=True)
@@ -842,7 +848,7 @@ class PortfolioAgent:
             raw_data.append((code, sc.get("mom_60d", 0), sc.get("ann_vol", 0.3),
                             sc.get("sharpe60", 0), sc.get("turnover", 1.0)))
 
-        ranked = self._percentile_score(raw_data)
+        ranked = self._percentile_score(raw_data, cycle)
         # 去重补位: 同tag只选1只, 向下填充
         selected = []
         seen_tags = set()
