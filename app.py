@@ -205,20 +205,6 @@ def fetch_etf_prices(codes: list, start: str, end: str) -> pd.DataFrame:
     return df
 
 @st.cache_data(ttl=3600)
-def fetch_kline_data(code: str, days: int = 90) -> pd.DataFrame:
-    sql = f"""
-        SELECT date, open, high, low, close, vol, adj_factor
-        FROM etf.etf_day WHERE code = '{code}'
-        ORDER BY date DESC LIMIT {days}
-    """
-    df = _ch_fetch(sql)
-    if df.empty: return df
-    df = df.sort_values("date").reset_index(drop=True)
-    for col in ["open", "high", "low", "close"]:
-        df[col] = df[col] * df["adj_factor"]
-    df["date"] = pd.to_datetime(df["date"])
-    return df
-
 @st.cache_data(ttl=3600)
 def fetch_date_range():
     df = _ch_fetch("SELECT min(date) as mi, max(date) as ma FROM etf.etf_day")
@@ -377,59 +363,6 @@ def llm_analyze_macro(pmi, cpi, ppi, m2, sf, gdp, s1m, s3m) -> dict:
         pass
     return None
 
-
-# ── Arena PostgreSQL ──────────────────────────────────
-PG_HOST = "10.13.66.5"
-PG_PORT = 20095
-PG_USER = "arena_reader"
-PG_PASSWORD = "arena_reader404"
-PG_DATABASE = "cufel_q"
-
-@st.cache_data(ttl=600)
-def fetch_arena_benchmarks() -> dict:
-    """获取竞技场所有 Agent 的业绩基准数据"""
-    try:
-        import psycopg2
-        conn = psycopg2.connect(host=PG_HOST, port=PG_PORT, user=PG_USER,
-                                password=PG_PASSWORD, database=PG_DATABASE, connect_timeout=5)
-        cur = conn.cursor()
-
-        # Agent 列表
-        cur.execute("SELECT agent_id, agent_name, type FROM arena.agent_pool")
-        agents = {r[0]: {"name": r[1], "type": r[2]} for r in cur.fetchall()}
-
-        # 最新 NAV
-        cur.execute("""SELECT agent_id, date, nav, ret FROM arena.daily_nav
-            WHERE (agent_id, date) IN (SELECT agent_id, max(date) FROM arena.daily_nav GROUP BY agent_id)""")
-        navs = {}
-        for r in cur.fetchall():
-            navs[r[0]] = {"date": str(r[1]), "nav": float(r[2] or 1), "ret": float(r[3] or 0)}
-
-        # 回测指标
-        cur.execute("""SELECT agent_id, metrics FROM arena.backtest_res
-            WHERE (agent_id, date) IN (SELECT agent_id, max(date) FROM arena.backtest_res GROUP BY agent_id)""")
-        bt_metrics = {}
-        for r in cur.fetchall():
-            bt_metrics[r[0]] = r[1] if isinstance(r[1], dict) else {}
-
-        cur.close()
-        conn.close()
-
-        # 组装结果
-        result = {}
-        for aid, info in agents.items():
-            result[info["name"]] = {
-                "type": info["type"],
-                "nav": navs.get(aid, {}).get("nav", 1.0),
-                "ret": navs.get(aid, {}).get("ret", 0),
-                "date": navs.get(aid, {}).get("date", ""),
-                "ann_ret": bt_metrics.get(aid, {}).get("ann_ret", 0),
-                "sharpe": bt_metrics.get(aid, {}).get("sharpe_ratio", 0),
-                "max_dd": bt_metrics.get(aid, {}).get("max_drawdown", 0),
-            }
-        return result
-    except Exception:
-        return {}
 
 
 # ── TDA 舆情指标（占位，nlp 库授权后启用）───────────
@@ -775,7 +708,7 @@ with st.spinner("初始化 Agent..."):
 # ═══════════════════════════════════════════════════════════
 # 第二个 Tab: 持仓分析
 # ═══════════════════════════════════════════════════════════
-tab_macro, tab_portfolio, tab_kline, tab_signal, tab_backtest = st.tabs(["🌍 宏观指标", "📌 持仓分析", "📉 持仓K线图", "📡 策略信号", "📈 回测结果"])
+tab_macro, tab_portfolio, tab_signal, tab_backtest = st.tabs(["🌍 宏观指标", "📌 持仓分析", "📡 策略信号", "📈 回测结果"])
 
 with tab_portfolio:
     # ── 实时行情条 ─────────────────────────────────────
@@ -1207,44 +1140,6 @@ with tab_portfolio:
                     st.success("各类别比例合理，无需调整")
 
 
-# ═══════════════════════════════════════════════════════════
-# 第三个 Tab: K线图
-# ═══════════════════════════════════════════════════════════
-with tab_kline:
-    st.header("📉 持仓K线图")
-    if actual_df is not None and len(actual_df) > 0:
-        kline_codes = actual_df["代码"].tolist()
-        kline_days = st.selectbox("周期", [30, 60, 90, 180, 360], index=2,
-                                  format_func=lambda d: f"近{d}天", key="kline_period")
-        cols_k = st.columns(min(len(kline_codes), 3))
-        for i, code in enumerate(kline_codes):
-            col_idx = i % 3
-            with cols_k[col_idx]:
-                try:
-                    kdf = fetch_kline_data(code, kline_days)
-                    if len(kdf) >= 5:
-                        nm = actual_df[actual_df["代码"] == code]
-                        name = nm["名称"].values[0] if len(nm) > 0 else code
-                        fig = go.Figure()
-                        fig.add_trace(go.Candlestick(
-                            x=kdf["date"], open=kdf["open"], high=kdf["high"],
-                            low=kdf["low"], close=kdf["close"],
-                            name=code, increasing_line_color="#ef5350",
-                            decreasing_line_color="#26a69a"))
-                        fig.add_trace(go.Bar(x=kdf["date"], y=kdf["vol"],
-                            name="量", marker_color="rgba(0,0,0,0.15)",
-                            yaxis="y2", opacity=0.3))
-                        fig.update_layout(
-                            title=f"{name}({code})",
-                            height=320, margin=dict(l=5, r=5, t=35, b=5),
-                            xaxis_rangeslider_visible=False,
-                            yaxis=dict(title=""), yaxis2=dict(overlaying="y", side="right", showticklabels=False),
-                            showlegend=False, template="plotly_white")
-                        st.plotly_chart(fig, use_container_width=True)
-                except Exception:
-                    pass
-    else:
-        st.info("请先加载持仓数据")
 
 # ═══════════════════════════════════════════════════════════
 # 第一个 Tab: 宏观指标
@@ -1304,25 +1199,6 @@ with tab_macro:
     except Exception as e:
         st.error(f"宏观分析失败: {e}")
 
-    # ── Arena 竞技场基准 ────────────────────────────
-    st.divider()
-    st.subheader("🏆 Arena 竞技场基准")
-
-    bench = fetch_arena_benchmarks()
-    if bench:
-        # 按年化收益排序
-        sorted_agents = sorted(bench.items(), key=lambda x: x[1].get("ann_ret", 0), reverse=True)
-        bdata = []
-        for name, info in sorted_agents:
-            bdata.append({
-                "Agent": name, "类型": info["type"],
-                "累计净值": f"{info['nav']:.3f}",
-                "日收益": f"{info['ret']*100:+.2f}%",
-                "年化收益": f"{info['ann_ret']*100:.1f}%",
-                "夏普": f"{info['sharpe']:.2f}",
-                "最大回撤": f"{info['max_dd']*100:.1f}%",
-            })
-        st.dataframe(pd.DataFrame(bdata), use_container_width=True, hide_index=True)
 
 # ═══════════════════════════════════════════════════════════
 # 第四个 Tab: 回测结果
