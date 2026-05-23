@@ -650,6 +650,7 @@ class PortfolioAgent:
         return name
 
     SCORE_WEIGHTS = {"mom": 0.30, "vol": 0.30, "sharpe": 0.25, "flow": 0.15}
+    LAZY_LAMBDA = 0.0  # 惰性惩罚: hold_bonus = 1.0 + λ
 
     @classmethod
     def _score_etf(cls, metrics: dict) -> float:
@@ -676,7 +677,7 @@ class PortfolioAgent:
         if not candidates:
             return {}
 
-        hold_bonus = 1.10  # 持有中的ETF评分加成10%
+        hold_bonus = 1.0 + PortfolioAgent.LAZY_LAMBDA  # configurable hold bonus
         current_set = current_codes or set()
         top_n = self.TOP_N.get(class_type, 2)
         ranked = []

@@ -19,25 +19,28 @@ class BacktestEngine:
     def __init__(self, agent,
                  transaction_cost: float = 0.001,
                  rebalance_threshold: float = 0.005,
-                 slippage: float = 0.0005):
+                 slippage: float = 0.0005,
+                 freq: str = "M"):
         """
         Args:
             agent: MacroDrivenETFAgent 实例
             transaction_cost: 交易成本（默认万分之十=0.001，含买卖双向）
             rebalance_threshold: 调仓阈值（0.5%=0.005，低于此不交易）
             slippage: 滑点（0.05%=0.0005）
+            freq: 调仓频率 "M"=月末 "Q"=季末
         """
         self.agent = agent
         self.transaction_cost = transaction_cost
         self.rebalance_threshold = rebalance_threshold
         self.slippage = slippage
+        self.freq = freq
 
     # ═══════════════════════════════════════════════════════
     #  调仓日期
     # ═══════════════════════════════════════════════════════
 
     def generate_rebalance_dates(self, start: datetime, end: datetime) -> List[datetime]:
-        """生成月末调仓日期列表"""
+        """生成调仓日期列表 (M=月末, Q=季末)"""
         dates = []
         current = start
         while current <= end:
@@ -46,7 +49,10 @@ class BacktestEngine:
             else:
                 month_end = datetime(current.year, current.month + 1, 1) - timedelta(days=1)
             if month_end <= end:
-                dates.append(month_end)
+                if self.freq == "Q" and month_end.month not in (3, 6, 9, 12):
+                    pass  # skip non-quarter-end months
+                else:
+                    dates.append(month_end)
             if current.month == 12:
                 current = datetime(current.year + 1, 1, 1)
             else:
