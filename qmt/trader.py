@@ -255,6 +255,47 @@ def do_buy(C, qmt_code, amount_yuan, label):
 
 # 
 
+
+def redeploy_cash(C, available_cash):
+    """Priority waterfall: gold -> bond -> core -> satellite"""
+    tw = (g.orders or {}).get("target_weights", {})
+    if not tw or available_cash < 500: return
+
+    # Compute current MV per code
+    tick_all = C.get_full_tick(list(g.holdings.keys()))
+    mv = {}
+    for qc, sh in g.holdings.items():
+        p = tick_all[qc].get("lastPrice", 0) if tick_all and qc in tick_all else 0
+        mv[qc.split(".")[0]] = sh * p
+    total_mv = sum(mv.values())
+    total_assets = total_mv + available_cash
+    remaining = available_cash
+
+    # Priority order: GOLD, BOND, CORE_STOCK, then satellite by weight desc
+    GOLD = "518860"; BOND = "511010"; CORE = "563220"
+    priority = [(GOLD, 0.10), (BOND, 0.25), (CORE, 0.325)]
+    for code, target_pct in priority:
+        if remaining < 500: break
+        cur = mv.get(code, 0)
+        target = total_assets * target_pct
+        deficit = target - cur
+        if deficit > 500:
+            amt = min(deficit, remaining)
+            tq = code_to_qmt(code)
+            do_buy(C, tq, int(amt), "cascade_" + code)
+            remaining -= amt
+
+    # Remaining cash -> satellite, by target weight desc, one at a time
+    if remaining > 500 and tw:
+        sat = [(c, w) for c, w in tw.items() if c not in (GOLD, BOND, CORE)]
+        sat.sort(key=lambda x: x[1], reverse=True)
+        for code, _ in sat:
+            if remaining < 500: break
+            tq = code_to_qmt(code)
+            do_buy(C, tq, int(remaining), "cascade_" + code)
+            remaining = 0
+            break
+
 def run_stoploss(C):
 
     """"""
@@ -349,19 +390,9 @@ def run_stoploss(C):
                     except:
                         pass
 
-                    # Redeploy freed cash to target ETFs
+                    # Redeploy freed cash via cascade
                     freed_cash = order_price * info["qty"]
-                    tw = (g.orders or {}).get("target_weights", {})
-                    if tw and freed_cash > 1000:
-                        targets = dict(tw)
-                        hold_targets = [c for c in targets if c in g.holdings or code_to_qmt(c) in g.holdings]
-                        if not hold_targets:
-                            hold_targets = sorted(targets, key=targets.get, reverse=True)[:2]
-                        n = min(len(hold_targets), 2)
-                        for tc in hold_targets[:n]:
-                            tq = code_to_qmt(tc)
-                            do_buy(C, tq, int(freed_cash / n), "fill_" + code)
-                        print(f"  [FILL] stop={code} freed={freed_cash:.0f}yuan -> {n} targets")
+                    redeploy_cash(C, freed_cash)
 
                 except Exception as e:
 
@@ -390,16 +421,9 @@ def run_stoploss(C):
                     if tick_all and qc in tick_all:
                         total_mv += sh * tick_all[qc].get("lastPrice", 0)
                 available_cash = bal - total_mv
-                if available_cash > 2000:  # > 2000 yuan, redeploy
-                    targets = dict(tw)
-                    hold_targets = [c for c in targets if c in g.holdings or code_to_qmt(c) in g.holdings]
-                    if not hold_targets:
-                        hold_targets = sorted(targets, key=targets.get, reverse=True)[:2]
-                    n = min(len(hold_targets), 2)
-                    for tc in hold_targets[:n]:
-                        tq = code_to_qmt(tc)
-                        do_buy(C, tq, int(available_cash / n), "auto_cash")
-                    print(f"[{time_str}] [CASH] redeployed {available_cash:.0f}yuan -> {n} targets")
+                if available_cash > 2000:
+                    redeploy_cash(C, available_cash)
+                    print(f"[{time_str}] [CASH] redeployed {available_cash:.0f}yuan")
         except: pass
 
 def run_rebalance(C):
