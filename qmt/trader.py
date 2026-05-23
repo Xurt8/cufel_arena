@@ -1257,7 +1257,7 @@ def account_callback(C, accountInfo):
 
         if status:
 
-            print(f"[Account] {datetime.now().strftime("%H:%M:%S")} status={status}")
+            print(f'[Account] {datetime.now().strftime("%H:%M:%S")} status={status}')
 
     except:
 
