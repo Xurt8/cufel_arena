@@ -1123,17 +1123,18 @@ with tab_portfolio:
                         cur_mv = qty * price
                         cur_w = cur_mv / total_mv if total_mv > 0 else 0
                         sc = scores.get(code, 0.5)
-                        # 按得分比例分配该类别内权重
                         target_w = target_type_w * sc / total_score
                         diff_mv = total_mv * target_w - cur_mv
                         stars = "⭐" if sc > 0.65 else "👍" if sc > 0.5 else "👎" if sc < 0.35 else "—"
                         action = "增持" if diff_mv > 500 else "减持" if diff_mv < -500 else "—"
+                        est_cost = abs(diff_mv) * 0.0004 if action != "—" else 0
                         adj_plan.append({
                             "代码": code, "名称": ETF_NAMES.get(code, code),
                             "类别": t, "评分": f"{sc:.2f}",
                             "强弱": stars,
                             "当前": f"{cur_w*100:.1f}%", "目标": f"{target_w*100:.1f}%",
                             "操作": action, "差额": f"{diff_mv:+,.0f}元",
+                            "预估成本": f"~{est_cost:.0f}元" if est_cost > 0 else "—",
                         })
 
                 if adj_plan:
@@ -1286,9 +1287,13 @@ with tab_signal:
                     tcs[i % 6].metric(name, f"{w*100:.1f}%", code)
             stops = qd.get("stops", [])
             if stops:
-                with st.expander(f"止损明细 ({len(stops)} 只)"):
-                    sd = [{"代码": s["code"], "名称": ETF_NAMES.get(s["code"], s.get("name","")), "持仓": s.get("qty",0), "止损价": s.get("stop_price",0),
-                           "阈值": f"{s.get("threshold_pct",8)}%"} for s in stops]
+                with st.expander(f"止损/止盈明细 ({len(stops)} 只)"):
+                    sd = [{"代码": s["code"], "名称": ETF_NAMES.get(s["code"], s.get("name","")), "持仓": s.get("qty",0),
+                           "止损价": s.get("stop_price",0), "止损阈值": f"{s.get('threshold_pct',8)}%",
+                           "止盈价": s.get("trail_profit_price", 0),
+                           "止盈阈值": f"{s.get('trail_profit_pct',30)}%",
+                           "预估成本": f"~{s.get('qty',0) * s.get('stop_price',0) * 0.0004:.0f}元"}
+                          for s in stops]
                     st.dataframe(pd.DataFrame(sd), use_container_width=True, hide_index=True)
         except Exception:
             st.caption("读取失败")
