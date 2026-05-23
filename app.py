@@ -129,7 +129,9 @@ def _extract_holdings_from_df(raw_df: pd.DataFrame) -> pd.DataFrame:
 def load_actual_holdings():
     """加载实际持仓 — 仅从QMT实时导出读取"""
     import json
-    qmt_path = r"D:\长城策略交易系统\python\qmt_holdings.json"
+    qmt_path = r"D:\长城策略交易系统\bin.x64\qmt_holdings.json"
+    if not os.path.exists(qmt_path):
+        qmt_path = r"D:\长城策略交易系统\python\qmt_holdings.json"
     if not os.path.exists(qmt_path):
         return None
     try:
