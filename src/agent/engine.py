@@ -755,10 +755,10 @@ class PortfolioAgent:
         return min(1.0, max(0.0, dispersion / 3))
 
     CYCLE_ALLOC = {
-        "复苏期": {"gold": 0.10, "bond": 0.25, "stock_core": 0.325, "stock_sat": 0.325},
-        "扩张期": {"gold": 0.35, "bond": 0.15, "stock_core": 0.175, "stock_sat": 0.175},
-        "滞胀期": {"gold": 0.30, "bond": 0.15, "stock_core": 0.10, "stock_sat": 0.10},
-        "衰退期": {"gold": 0.10, "bond": 0.50, "stock_core": 0.10, "stock_sat": 0.10},
+        "复苏期": {"gold": 0.10, "bond": 0.25, "stock_core": 0.325, "stock_sat": 0.325, "cash": 0.00},
+        "扩张期": {"gold": 0.35, "bond": 0.15, "stock_core": 0.175, "stock_sat": 0.175, "cash": 0.15},
+        "滞胀期": {"gold": 0.30, "bond": 0.15, "stock_core": 0.10, "stock_sat": 0.10, "cash": 0.35},
+        "衰退期": {"gold": 0.10, "bond": 0.50, "stock_core": 0.10, "stock_sat": 0.10, "cash": 0.20},
     }
     CORE_STOCKS = {"510300": "沪深300", "510500": "中证500"}
     SATELLITE_N = 4
@@ -806,9 +806,10 @@ class PortfolioAgent:
         GOLD_ETF = "518880"
         portfolio[GOLD_ETF] = {"name": "黄金ETF", "type": "Commodity", "weight": alloc["gold"]}
 
-        # --- Bond: fixed ETF ---
+        # --- Bond: fixed ETF + cash ---
         BOND_ETF = "511010"
-        portfolio[BOND_ETF] = {"name": "国债ETF", "type": "Bond", "weight": alloc["bond"]}
+        portfolio[BOND_ETF] = {"name": "国债ETF", "type": "Bond",
+                                "weight": alloc["bond"] + alloc.get("cash", 0)}
 
         # --- Trend gate MA lookup ---
         above_ma = set()
