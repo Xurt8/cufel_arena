@@ -20,12 +20,9 @@ import plotly.graph_objects as go
 
 # ── 路径与导入 ─────────────────────────────────────────
 _THIS_DIR = Path(__file__).parent
-sys.path.insert(0, str(_THIS_DIR / "ETFAgents" / "MacroDrivenETF"))
+sys.path.insert(0, str(_THIS_DIR))
 
-from macro_driven_etf_agent import (
-    MacroDrivenETFAgent, DataAgent, MacroAgent, PortfolioAgent,
-    _DATA_PATH, _CACHE_PATH
-)
+from src.agent.engine import MacroDrivenETFAgent, MacroAgent, PortfolioAgent, DataAgent, MacroData
 
 # ── 持仓文件路径 ───────────────────────────────────────
 # _THIS_DIR 已在上面定义
@@ -80,7 +77,7 @@ def parse_holdings_raw(raw_bytes: bytes, filename: str = "") -> pd.DataFrame:
 
 
 def _clean_cell(val) -> str:
-    """清理单元格值，去掉 =\"...\" 包裹"""
+    """清理单元格值，去掉 ="..." 包裹"""
     s = str(val).strip()
     if s.startswith('="') and s.endswith('"'):
         s = s[2:-1]
@@ -88,7 +85,7 @@ def _clean_cell(val) -> str:
 
 def _extract_holdings_from_df(raw_df: pd.DataFrame) -> pd.DataFrame:
     """从原始DataFrame中提取持仓数据"""
-    # 清理所有单元格的 =\"...\" 格式 (pandas 3.0+ Arrow后端)
+    # 清理所有单元格的 ="..." 格式 (pandas 3.0+ Arrow后端)
     raw_df = raw_df.map(_clean_cell).astype(str)
 
     # 跳过前几行，从第一个6位代码行开始
@@ -229,9 +226,52 @@ def fetch_date_range():
     return pd.to_datetime(df["mi"].iloc[0]).date(), pd.to_datetime(df["ma"].iloc[0]).date()
 
 # ── Agent 初始化 ───────────────────────────────────────
+def compute_stoploss(code, cost):
+    from src.data.local_store import get_bars
+    bars = get_bars([code], days=120)
+    if code not in bars or bars[code] is None or len(bars[code]) < 10:
+        return {'stop_price': round(cost * 0.92, 3), 'peak': cost, 'threshold_pct': 8}
+    df = bars[code]; closes = df['close'].values
+    rets = np.diff(np.log(closes[closes > 0]))
+    ann_vol = float(np.std(rets) * np.sqrt(252)) if len(rets) > 5 else 0.3
+    threshold_pct = round(max(8, min(20, ann_vol * 100 / 2)), 1)
+    recent = list(closes[-60:]) if len(closes) >= 60 else list(closes)
+    recent.reverse(); continuous = []
+    for p in recent:
+        if not continuous or abs(p / continuous[-1] - 1) < 0.5: continuous.append(p)
+        else: break
+    peak = float(max(continuous)) if continuous else float(closes[-1])
+    if cost > 0 and cost > peak: peak = cost
+    stop_price = round(peak * (1 - threshold_pct / 100), 3)
+    return {'stop_price': stop_price, 'peak': round(peak, 3), 'threshold_pct': threshold_pct}
+
+@st.cache_data(ttl=86400)
+def build_dynamic_universe() -> dict:
+    import json
+    df = pd.read_parquet("data/etf_daily.parquet")
+    recent = df[df["date"] >= pd.Timestamp.now() - pd.Timedelta(days=60)]
+    vol_rank = recent.groupby("code")["vol"].mean().sort_values(ascending=False)
+    top_codes = vol_rank.index.tolist()
+    with open("data/etf_names.json", "r", encoding="utf-8") as f: names = json.load(f)
+    from src.data.local_store import get_sector_map
+    c = get_sector_map()
+    if not c: raise RuntimeError("板块缓存为空")
+    GOLD_KW = ["黄金","上海金","金ETF"]
+    uni = {"Stock":[],"Bond":[],"Commodity":[]}
+    for code in top_codes:
+        name = names.get(code,""); qmt = f"{code}.SH" if code.startswith(("5","6","51","56","58","59")) else f"{code}.SZ"
+        if not name or qmt in c["cross"]: continue
+        if qmt in c["commodity"]:
+            if any(kw in name for kw in GOLD_KW): uni["Commodity"].append((code, name))
+        elif qmt in c["bond"] or qmt in c["money"]: uni["Bond"].append((code, name))
+        elif qmt in c["stock"]: uni["Stock"].append((code, name))
+    return uni
+
 @st.cache_resource
 def init_agent():
-    agent = MacroDrivenETFAgent(use_llm=False)
+    agent = MacroDrivenETFAgent(use_llm=True)
+    uni = build_dynamic_universe()
+    if uni and uni.get("Stock"): agent.set_etf_universe(uni)
     return agent
 
 # ── 回测引擎 ───────────────────────────────────────────
@@ -662,6 +702,22 @@ label[data-baseweb="checkbox"] { color: #1d1d1f !important; }
 
 """, unsafe_allow_html=True)
 
+# 启动时合并待处理数据
+_sync_csv = Path("data/_sync_pending.csv")
+if _sync_csv.exists():
+    try:
+        nd = pd.read_csv(_sync_csv, dtype={"code": str})
+        nd["date"] = pd.to_datetime(nd["date"], format="%Y%m%d")
+        ex = pd.read_parquet("data/etf_daily.parquet"); ex["code"] = ex["code"].astype(str)
+        combined = pd.concat([ex, nd], ignore_index=True).drop_duplicates(subset=["code","date"])
+        combined.to_parquet("data/etf_daily.parquet", index=False)
+        _sync_csv.unlink()
+    except Exception: pass
+
+# 清除旧缓存
+st.cache_resource.clear()
+st.cache_data.clear()
+
 st.title("cufel_arena")
 st.caption("宏观驱动 ETF 策略 · Macro-Driven ETF Strategy")
 
@@ -710,12 +766,16 @@ if uploaded_file:
 
 # ── 初始化 Agent ─────────────────────────────────────────
 with st.spinner("初始化 Agent..."):
+    DYNAMIC_UNIVERSE = build_dynamic_universe()
+    for cat in DYNAMIC_UNIVERSE.values():
+        for code, name in cat:
+            ETF_NAMES[code] = name
     agent = init_agent()
 
 # ═══════════════════════════════════════════════════════════
 # 第二个 Tab: 持仓分析
 # ═══════════════════════════════════════════════════════════
-tab_macro, tab_portfolio, tab_kline, tab_backtest = st.tabs(["🌍 宏观指标", "📌 持仓分析", "📉 持仓K线图", "📈 回测结果"])
+tab_macro, tab_portfolio, tab_kline, tab_signal, tab_backtest = st.tabs(["🌍 宏观指标", "📌 持仓分析", "📉 持仓K线图", "📡 策略信号", "📈 回测结果"])
 
 with tab_portfolio:
     # ── 实时行情条 ─────────────────────────────────────
@@ -1268,6 +1328,79 @@ with tab_macro:
 # 第四个 Tab: 回测结果
 # ═══════════════════════════════════════════════════════════
 # (注：Arena 基准已整合到宏观指标 Tab 中)
+# Tab: 策略信号 + QMT 指令
+with tab_signal:
+    st.header("📡 策略信号 · QMT 指令")
+
+    strategy_holdings = {}
+    try:
+        sh = agent.get_current_holdings(date_str, theta=theta)
+        strategy_holdings = sh.get(date_str, {})
+        if strategy_holdings:
+            st.success(f"策略计算完成 · {date_str}")
+            cols = st.columns(min(len(strategy_holdings), 5))
+            for i, (code, w) in enumerate(sorted(strategy_holdings.items(), key=lambda x: x[1], reverse=True)):
+                name = ETF_NAMES.get(code, code)
+                cols[i % 5].metric(name, f"{w*100:.1f}%", f"{code}")
+        else:
+            st.warning("策略计算返回空持仓")
+    except Exception as e:
+        st.error(f"策略计算失败: {e}")
+
+    # 导出 QMT
+    actual_df = st.session_state.get("holdings_df")
+    if strategy_holdings and actual_df is not None and len(actual_df) > 0:
+        try:
+            qmt_dir = r"D:\长城策略交易系统\python"
+            os.makedirs(qmt_dir, exist_ok=True)
+            stops_export = []
+            for _, row in actual_df.iterrows():
+                code = str(row["代码"]); cost = float(row["成本价"])
+                sl = compute_stoploss(code, cost)
+                stops_export.append({"code": code, "name": ETF_NAMES.get(code, row.get("名称", code)),
+                    "cost": cost, "stop_price": sl["stop_price"], "peak": sl["peak"],
+                    "qty": int(float(row["数量"])), "threshold_pct": sl.get("threshold_pct", 8)})
+            export_data = {"date": date_str, "cycle_id": datetime.now().strftime("%Y%m"),
+                           "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                           "target_weights": {c2: round(w2, 4) for c2, w2 in strategy_holdings.items()},
+                           "stops": stops_export,
+                           "trades": {"止损卖出": [], "调仓": []}}
+            with open(os.path.join(qmt_dir, "qmt_orders_latest.json"), "w", encoding="utf-8") as f:
+                json.dump(export_data, f, ensure_ascii=False, indent=2)
+            st.success(f"已导出 QMT 指令 ({len(stops_export)} 只止损监控)")
+        except Exception as e:
+            st.warning(f"QMT 导出失败: {e}")
+
+    # 当前 QMT 指令快照
+    st.divider()
+    st.subheader("📋 QMT 当前指令")
+    qmt_path = r"D:\长城策略交易系统\python\qmt_orders_latest.json"
+    if os.path.exists(qmt_path):
+        try:
+            with open(qmt_path, "r", encoding="utf-8") as f_q:
+                qd = json.load(f_q)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("日期", qd.get("date", "?"))
+            c2.metric("生成", qd.get("generated", "?")[-5:])
+            c3.metric("监控", f"{len(qd.get("stops", []))} 只")
+            tw = qd.get("target_weights", {})
+            if tw:
+                st.caption("目标权重")
+                tcs = st.columns(min(len(tw), 6))
+                for i, (code, w) in enumerate(sorted(tw.items(), key=lambda x: x[1], reverse=True)):
+                    name = ETF_NAMES.get(code, code)
+                    tcs[i % 6].metric(name, f"{w*100:.1f}%", code)
+            stops = qd.get("stops", [])
+            if stops:
+                with st.expander(f"止损明细 ({len(stops)} 只)"):
+                    sd = [{"代码": s["code"], "名称": ETF_NAMES.get(s["code"], s.get("name","")), "持仓": s.get("qty",0), "止损价": s.get("stop_price",0),
+                           "阈值": f"{s.get("threshold_pct",8)}%"} for s in stops]
+                    st.dataframe(pd.DataFrame(sd), use_container_width=True, hide_index=True)
+        except Exception:
+            st.caption("读取失败")
+    else:
+        st.caption("尚未生成 QMT 指令")
+
 with tab_backtest:
     st.header("📈 回测结果")
 

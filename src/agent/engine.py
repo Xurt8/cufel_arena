@@ -1,0 +1,1152 @@
+"""
+Macro Driven ETF Agent - 宏观驱动ETF策略
+继承 ETFAgentBase，实现 cufel_arena 竞赛接口
+"""
+
+import os
+import json
+import math
+import warnings
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import pandas as pd
+import numpy as np
+from dotenv import load_dotenv
+try:
+    from pydantic import BaseModel
+except ImportError:
+    BaseModel = object
+
+# 路径配置 - 使用 __file__ 计算绝对路径
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "macro")
+_CACHE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "cache")
+
+# 加载环境变量
+load_dotenv(os.path.join(_THIS_DIR, ".env"))
+
+# 尝试导入 cufel_arena_agent
+try:
+    from cufel_arena_agent import ETFAgentBase
+    _CUFEL_AVAILABLE = True
+except ImportError:
+    _CUFEL_AVAILABLE = False
+    # 本地测试用基础类
+    class ETFAgentBase:
+        def __init__(self, name="MacroDrivenETF", **kwargs):
+            self.name = name
+
+
+# ==================== DataAgent ====================
+
+from dataclasses import dataclass, field
+
+@dataclass
+class MacroData:
+    """完整宏观数据结构"""
+    decision_date: datetime
+    pmi: float = float('nan')
+    pmi_history: list = field(default_factory=list)
+    pmi_date: datetime = None
+    cpi_yoy: float = float('nan')
+    cpi_history: list = field(default_factory=list)
+    cpi_date: datetime = None
+    ppi_yoy: float = float('nan')
+    ppi_history: list = field(default_factory=list)
+    ppi_date: datetime = None
+    m2_yoy: float = float('nan')
+    m2_history: list = field(default_factory=list)
+    m2_date: datetime = None
+    sf_month: float = float('nan')
+    sf_history: list = field(default_factory=list)
+    sf_date: datetime = None
+    gdp_yoy: float = float('nan')
+    gdp_quarter: str = ''
+    shibor_1m: float = float('nan')
+    shibor_3m: float = float('nan')
+    shibor_date: datetime = None
+
+
+class DataAgent:
+    """数据层Agent"""
+
+    def __init__(self, data_path: str = None):
+        self.data_path = Path(data_path) if data_path else Path(_DATA_PATH)
+        self.pmi_data: Optional[pd.DataFrame] = None
+        self.cpi_data: Optional[pd.DataFrame] = None
+        self.ppi_data: Optional[pd.DataFrame] = None
+        self.m2_data: Optional[pd.DataFrame] = None
+        self.sf_data: Optional[pd.DataFrame] = None
+        self.gdp_data: Optional[pd.DataFrame] = None
+        self.shibor_data: Optional[pd.DataFrame] = None
+
+    def load_all_data(self) -> None:
+        """加载所有宏观数据"""
+        self._load_pmi()
+        self._load_cpi()
+        self._load_ppi()
+        self._load_m()
+        self._load_sf()
+        self._load_gdp()
+        self._load_shibor()
+
+    def _load_pmi(self) -> None:
+        try:
+            file_path = self.data_path / "cn_pmi.csv"
+            df = pd.read_csv(file_path)
+            df = df.rename(columns={"month": "date_str", "pmi": "pmi"})
+            df["date"] = pd.to_datetime(df["date_str"], format="mixed") + pd.offsets.MonthEnd(0)
+            df = df[["date", "pmi"]].sort_values("date")
+            self.pmi_data = df
+        except Exception as e:
+            warnings.warn(f"PMI data load failed: {e}")
+            self.pmi_data = pd.DataFrame(columns=["date", "pmi"])
+
+    def _load_cpi(self) -> None:
+        try:
+            file_path = self.data_path / "cn_cpi.csv"
+            df = pd.read_csv(file_path)
+            df = df.rename(columns={"month": "date_str", "cpi": "cpi_yoy"})
+            df["date"] = pd.to_datetime(df["date_str"], format="mixed") + pd.offsets.MonthEnd(0)
+            df = df[df["date"] >= "2020-01-01"]
+            df = df[["date", "cpi_yoy"]].sort_values("date")
+            self.cpi_data = df
+        except Exception as e:
+            warnings.warn(f"CPI data load failed: {e}")
+            self.cpi_data = pd.DataFrame(columns=["date", "cpi_yoy"])
+
+    def _load_ppi(self) -> None:
+        try:
+            file_path = self.data_path / "cn_ppi.csv"
+            df = pd.read_csv(file_path)
+            df = df.rename(columns={"month": "date_str", "ppi": "ppi_yoy"})
+            df["date"] = pd.to_datetime(df["date_str"], format="mixed") + pd.offsets.MonthEnd(0)
+            df = df[["date", "ppi_yoy"]].sort_values("date")
+            self.ppi_data = df
+        except Exception as e:
+            warnings.warn(f"PPI data load failed: {e}")
+            self.ppi_data = pd.DataFrame(columns=["date", "ppi_yoy"])
+
+    def _load_m(self) -> None:
+        try:
+            file_path = self.data_path / "cn_m.csv"
+            df = pd.read_csv(file_path)
+            df = df.rename(columns={"month": "date_str", "m2": "m2_yoy"})
+            df["date"] = pd.to_datetime(df["date_str"], format="mixed") + pd.offsets.MonthEnd(0)
+            df = df[["date", "m2_yoy"]].sort_values("date")
+            self.m2_data = df
+        except Exception as e:
+            warnings.warn(f"M2 data load failed: {e}")
+            self.m2_data = pd.DataFrame(columns=["date", "m2_yoy"])
+
+    def _load_sf(self) -> None:
+        try:
+            file_path = self.data_path / "sf_month.csv"
+            df = pd.read_csv(file_path)
+            df = df.rename(columns={"月份": "date_str", "社融增量当月值": "sf_month"})
+            df["date"] = pd.to_datetime(df["date_str"], format="mixed") + pd.offsets.MonthEnd(0)
+            df = df[["date", "sf_month"]].sort_values("date")
+            self.sf_data = df
+        except Exception as e:
+            warnings.warn(f"SF data load failed: {e}")
+            self.sf_data = pd.DataFrame(columns=["date", "sf_month"])
+
+    def _load_gdp(self) -> None:
+        try:
+            file_path = self.data_path / "cn_gdp.csv"
+            df = pd.read_csv(file_path)
+            df = df.rename(columns={"quarter": "quarter_str", "当季同比增速（%）": "gdp_yoy"})
+
+            def quarter_to_end_date(q_str: str) -> pd.Timestamp:
+                year = int(q_str[:4])
+                q = int(q_str[-1])
+                month = q * 3
+                return pd.Timestamp(year, month, 1) + pd.offsets.MonthEnd(0)
+
+            df["date"] = df["quarter_str"].apply(quarter_to_end_date)
+            df = df[["date", "gdp_yoy", "quarter_str"]].sort_values("date")
+            self.gdp_data = df
+        except Exception as e:
+            warnings.warn(f"GDP data load failed: {e}")
+            self.gdp_data = pd.DataFrame(columns=["date", "gdp_yoy", "quarter_str"])
+
+    def _load_shibor(self) -> None:
+        try:
+            file_path = self.data_path / "shibor.csv"
+            df = pd.read_csv(file_path)
+            df.columns = df.columns.str.strip()
+            df = df.rename(columns={"date": "date_str", "1m": "shibor_1m", "3m": "shibor_3m"})
+            df["date"] = pd.to_datetime(df["date_str"].astype(str), format="%Y%m%d")
+            df = df[["date", "shibor_1m", "shibor_3m"]].sort_values("date")
+            self.shibor_data = df
+        except Exception as e:
+            warnings.warn(f"SHIBOR data load failed: {e}")
+            self.shibor_data = pd.DataFrame(columns=["date", "shibor_1m", "shibor_3m"])
+
+    @staticmethod
+    def _publication_cutoff(data_date: pd.Timestamp, indicator: str) -> pd.Timestamp:
+        m, y = data_date.month, data_date.year
+        next_month_first = pd.Timestamp(y + 1, 1, 1) if m == 12 else pd.Timestamp(y, m + 1, 1)
+
+        if indicator == "pmi":
+            return next_month_first
+        elif indicator in ("cpi", "ppi"):
+            return next_month_first.replace(day=10)
+        elif indicator in ("m2", "sf"):
+            return next_month_first.replace(day=15)
+        elif indicator == "gdp":
+            return data_date + pd.Timedelta(days=16)
+        else:
+            return data_date + pd.Timedelta(days=1)
+
+    def get_macro_for_decision(self, decision_date: datetime, strict_publication_lag: bool = True) -> MacroData:
+        """获取决策日期可用的宏观数据"""
+        decision_ts = pd.Timestamp(decision_date)
+
+        def get_latest(df, key_col, indicator, n=6):
+            if df is None or len(df) == 0:
+                raise ValueError(f"No data for {key_col}")
+
+            if strict_publication_lag:
+                available = df["date"].apply(
+                    lambda d: DataAgent._publication_cutoff(pd.Timestamp(d), indicator) <= decision_ts
+                )
+                valid = df[available].copy()
+            else:
+                valid = df[df["date"] < decision_ts].copy()
+
+            if len(valid) == 0:
+                raise ValueError(f"No available data for {key_col}")
+
+            latest = valid.iloc[-1]
+            history = valid.tail(n)[key_col].tolist()
+
+            return latest, history
+
+        # 各指标逐一获取，缺失时用 NaN 兜底（避免早期数据不足导致整体失败）
+        def _safe_get(df, key_col, indicator, n=6, default_val=None):
+            try: return get_latest(df, key_col, indicator, n)
+            except (ValueError, KeyError, TypeError, IndexError): return (None, []) if default_val is None else default_val
+
+        pmi_latest, pmi_hist = _safe_get(self.pmi_data, "pmi", "pmi")
+        cpi_latest, cpi_hist = _safe_get(self.cpi_data, "cpi_yoy", "cpi")
+        ppi_latest, ppi_hist = _safe_get(self.ppi_data, "ppi_yoy", "ppi")
+        m2_latest, m2_hist = _safe_get(self.m2_data, "m2_yoy", "m2")
+        sf_latest, sf_hist = _safe_get(self.sf_data, "sf_month", "sf")
+        gdp_latest, _ = _safe_get(self.gdp_data, "gdp_yoy", "gdp", n=4, default_val=(None, []))
+
+        if self.shibor_data is not None and len(self.shibor_data) > 0:
+            shibor_valid = self.shibor_data[self.shibor_data["date"] < decision_ts]
+            shibor_latest = shibor_valid.iloc[-1] if len(shibor_valid) > 0 else None
+        else:
+            shibor_latest = None
+
+        sentinel_date = pd.Timestamp('2000-01-01')  # 缺失数据的占位日期
+        return MacroData(
+            decision_date=decision_date,
+            pmi=float(pmi_latest["pmi"]) if pmi_latest is not None else float('nan'),
+            pmi_history=pmi_hist if pmi_hist else [],
+            pmi_date=pd.Timestamp(pmi_latest["date"]) if pmi_latest is not None else sentinel_date,
+            cpi_yoy=float(cpi_latest["cpi_yoy"]) if cpi_latest is not None else float('nan'),
+            cpi_history=cpi_hist if cpi_hist else [],
+            cpi_date=pd.Timestamp(cpi_latest["date"]) if cpi_latest is not None else sentinel_date,
+            ppi_yoy=float(ppi_latest["ppi_yoy"]) if ppi_latest is not None else float('nan'),
+            ppi_history=ppi_hist if ppi_hist else [],
+            ppi_date=pd.Timestamp(ppi_latest["date"]) if ppi_latest is not None else sentinel_date,
+            m2_yoy=float(m2_latest["m2_yoy"]) if m2_latest is not None else float('nan'),
+            m2_history=m2_hist if m2_hist else [],
+            m2_date=pd.Timestamp(m2_latest["date"]) if m2_latest is not None else sentinel_date,
+            sf_month=float(sf_latest["sf_month"]) if sf_latest is not None else float('nan'),
+            sf_history=sf_hist if sf_hist else [],
+            sf_date=pd.Timestamp(sf_latest["date"]) if sf_latest is not None else sentinel_date,
+            gdp_yoy=float(gdp_latest["gdp_yoy"]) if gdp_latest is not None else float('nan'),
+            gdp_quarter=str(gdp_latest["quarter_str"]) if gdp_latest is not None else '',
+            shibor_1m=float(shibor_latest["shibor_1m"]) if shibor_latest is not None else float('nan'),
+            shibor_3m=float(shibor_latest["shibor_3m"]) if shibor_latest is not None else float('nan'),
+            shibor_date=pd.Timestamp(shibor_latest["date"]) if shibor_latest is not None else sentinel_date
+        )
+
+
+# ==================== MacroAgent ====================
+
+class MacroAgent:
+    """宏观分析Agent - LLM优先 + 规则兜底"""
+
+    # 优先环境变量，回退硬编码
+    LLM_URL = os.getenv("LLM_API_BASE", "https://api.deepseek.com/v1") + "/chat/completions"
+    LLM_KEY = os.getenv("LLM_API_KEY", "sk-63010d7a99a245fa992eb68a89d01f97")
+    LLM_MODEL = os.getenv("MODEL_NAME", "deepseek-chat")
+
+    def __init__(self, use_llm: bool = False):
+        self.use_llm = use_llm
+        self._llm_cache = {}  # {date_str: {cycle, confidence, ...}}
+
+    def _analyze_llm(self, macro_data) -> Dict:
+        """调用 LLM 判断经济周期，失败时返回 None"""
+        import requests, math
+
+        # 检查缓存（用日期字符串做key）
+        dt = getattr(macro_data, 'decision_date', None)
+        date_str = dt.strftime("%Y-%m-%d") if dt else ''
+        if date_str and date_str in self._llm_cache:
+            return self._llm_cache[date_str]
+
+        pmi = macro_data.pmi
+        cpi = macro_data.cpi_yoy if not math.isnan(macro_data.cpi_yoy) else 0
+        m2 = macro_data.m2_yoy if not math.isnan(macro_data.m2_yoy) else 8
+        ppi = macro_data.ppi_yoy if not math.isnan(macro_data.ppi_yoy) else 0
+        sf = macro_data.sf_month if not math.isnan(macro_data.sf_month) else 0
+        gdp = macro_data.gdp_yoy if not math.isnan(macro_data.gdp_yoy) else 0
+        shibor = macro_data.shibor_3m if not math.isnan(macro_data.shibor_3m) else 2
+
+        prompt = (
+            f"你是一位宏观经济学家。根据以下中国经济数据，判断当前经济周期阶段。\n\n"
+            f"数据：PMI={pmi:.1f}（50=荣枯线） CPI={cpi:.1f}% M2={m2:.1f}% "
+            f"PPI={ppi:.1f}% 社融={sf:.0f}亿 GDP={gdp:.1f}% SHIBOR_3M={shibor:.3f}\n\n"
+            f"请严格按以下格式回复（不要有任何多余文字）：\n"
+            f"周期: [扩张期/复苏期/滞胀期/衰退期]\n"
+            f"置信度: [0.0-1.0的小数]\n"
+            f"理由: [一句话]"
+        )
+
+        try:
+            r = requests.post(self.LLM_URL,
+                headers={"Authorization": f"Bearer {self.LLM_KEY}", "Content-Type": "application/json"},
+                json={"model": self.LLM_MODEL,
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": 100, "temperature": 0.3},
+                timeout=25)
+            if r.status_code != 200:
+                return None
+
+            text = r.json()["choices"][0]["message"]["content"]
+            cycle = None; conf = 0.7
+
+            # 宽容解析：匹配标准词或近义词
+            cycle_map = {
+                "扩张": "扩张期", "膨胀": "扩张期", "繁荣": "扩张期", "过热": "扩张期",
+                "复苏": "复苏期", "回升": "复苏期", "回暖": "复苏期",
+                "滞胀": "滞胀期", "滞涨": "滞胀期", "放缓": "滞胀期",
+                "衰退": "衰退期", "收缩": "衰退期", "萧条": "衰退期", "低迷": "衰退期",
+            }
+            for line in text.replace("：", ":").split("\n"):
+                line = line.strip()
+                if "周期" in line and ":" in line:
+                    keyword = line.split(":")[-1].strip()
+                    for k, v in cycle_map.items():
+                        if k in keyword: cycle = v; break
+                if ("置信" in line or "conf" in line.lower()) and ":" in line:
+                    try:
+                        val = line.split(":")[-1].strip().split()[0]
+                        conf = float(val)
+                    except: pass
+
+            if cycle is None:
+                return None  # 解析失败
+
+            result = {
+                "cycle_phase": cycle,
+                "confidence": conf,
+                "analysis": text.strip()[:200],
+                "investment_implication": "",
+                "risk_factors": [],
+                "metadata": {"source": "llm", "score": 0}
+            }
+            if date_str:
+                self._llm_cache[date_str] = result
+            return result
+        except Exception:
+            return None
+
+    def analyze(self, macro_data) -> Dict:
+        """LLM优先判断经济周期，失败时回退到PMI三维度规则（IHS/ISM标准）"""
+
+        if self.use_llm:
+            llm_result = self._analyze_llm(macro_data)
+            if llm_result is not None:
+                return llm_result
+
+        # PMI三维度打法（IHS Markit/ISM标准）
+        # 维度1: 水平 — 当前PMI在什么位置
+        # 维度2: 方向 — PMI最近3个月是上升还是下降
+        # 维度3: 加速度 — 方向本身在加速还是减速（二阶导）
+        pmi = macro_data.pmi
+        history = macro_data.pmi_history
+
+        # 维度1: 水平 (0=收缩, 1=临界, 2=扩张)
+        if pmi >= 51.0: level = 2
+        elif pmi >= 49.5: level = 1
+        else: level = 0
+
+        # 维度2: 方向 (-1=下降, 0=持平, 1=上升) — 放宽阈值
+        if len(history) >= 4:
+            ma3 = sum(history[-3:]) / 3
+            ma3_prev = sum(history[-4:-1]) / 3 if len(history) >= 4 else ma3
+            diff = ma3 - ma3_prev
+            if diff > 0.2: direction = 1
+            elif diff < -0.2: direction = -1
+            else: direction = 0
+        else:
+            direction = 0
+
+        # 维度3: 加速度 — 同上放宽
+        if len(history) >= 7:
+            recent_3 = sum(history[-3:]) / 3
+            mid_3 = sum(history[-5:-2]) / 3 if len(history) >= 5 else recent_3
+            accel = (recent_3 - mid_3) - (mid_3 - sum(history[-7:-4]) / 3 if len(history) >= 7 else mid_3)
+            if accel > 0.1: acceleration = 1
+            elif accel < -0.1: acceleration = -1
+            else: acceleration = 0
+        else:
+            acceleration = 0
+
+        # 三维度投票
+        signals = [level - 1, direction, acceleration]
+        bull_score = sum(1 for s in signals if s > 0)
+        bear_score = sum(1 for s in signals if s < 0)
+
+        # CPI通胀压力（中国CPI偏低，阈值适当下调）
+        cpi_pressure = 0
+        if not math.isnan(macro_data.cpi_yoy):
+            cpi = macro_data.cpi_yoy
+            if cpi > 1.5: cpi_pressure = 1
+            elif cpi < 0.0: cpi_pressure = -1
+
+        # 信贷环境
+        credit = 0
+        if not math.isnan(macro_data.m2_yoy):
+            m2 = macro_data.m2_yoy
+            if m2 > 10.0: credit = 1
+            elif m2 < 7.5: credit = -1
+
+        # 综合判定（滞回保护：同一周期不轻易切换）
+        prev = getattr(self, '_prev_cycle', '')
+        implication = ""
+        if bear_score >= 2 and cpi_pressure > 0:
+            cycle, conf = "滞胀期", 0.75
+        elif bear_score >= 2 and cpi_pressure <= 0:
+            cycle, conf = "衰退期", 0.75
+        elif bear_score >= 1 and credit <= -1:
+            cycle, conf = "衰退期", 0.65
+        elif bull_score >= 2 and cpi_pressure >= 0:
+            cycle, conf = "扩张期", 0.75
+        elif bull_score >= 2 and cpi_pressure > 0:
+            cycle, conf = "滞胀期", 0.60  # 扩张+通胀=滞胀风险
+        elif bull_score >= 1 and credit >= 0:
+            cycle, conf = "复苏期", 0.65
+        elif bull_score >= 1 and cpi_pressure > 0:
+            cycle, conf = "滞胀期", 0.55
+        elif cpi_pressure <= 0 and credit >= 0:
+            cycle, conf = "复苏期", 0.50
+        else:
+            cycle, conf = "滞胀期", 0.45
+        if prev == cycle and conf < 0.75:
+            conf += 0.05
+        self._prev_cycle = cycle
+
+        dim_detail = f"L{level}D{direction:+d}A{acceleration:+d}"
+        return {
+            "cycle_phase": cycle,
+            "confidence": conf,
+            "analysis": f"PMI={pmi} {dim_detail} bull={bull_score} bear={bear_score} CPI={macro_data.cpi_yoy}% M2={macro_data.m2_yoy}%",
+            "investment_implication": implication,
+            "risk_factors": [],
+            "metadata": {"input_pmi": pmi, "source": "pmi_3d", "dimensions": dim_detail}
+        }
+
+
+# ==================== PortfolioAgent ====================
+
+class PortfolioAgent:
+    """组合决策Agent — 宏观定类别权重 + 技术面动态选ETF"""
+
+    # 第一层：宏观周期 → 资产类别目标权重（股票/债券/商品）
+    CLASS_TARGETS = {
+        "复苏期": {"Stock": 0.60, "Bond": 0.25, "Commodity": 0.15},
+        "扩张期": {"Stock": 0.75, "Bond": 0.15, "Commodity": 0.10},
+        "滞胀期": {"Stock": 0.25, "Bond": 0.35, "Commodity": 0.40},
+        "衰退期": {"Stock": 0.15, "Bond": 0.70, "Commodity": 0.15},
+    }
+
+    # 第二层：候选ETF池（必须通过 set_etf_universe() 注入动态宇宙）
+    ETF_UNIVERSE = {"Stock": [], "Bond": [], "Commodity": []}
+
+    # 每类最多选几只
+    TOP_N = {"Stock": 5, "Bond": 2, "Commodity": 2}
+
+    CONSTRAINTS = {
+        "max_single_etf": 0.55,
+        "max_stock_ratio": 0.75,
+        "min_stock_ratio": 0.10,
+        "max_gold_ratio": 0.45,
+    }
+
+    # 去重：同SW1行业的ETF只保留得分最高的（替代关键词匹配）
+    _sector_map = None
+
+    @classmethod
+    def _get_sector_map(cls):
+        """懒加载 ETF → SW1行业 映射"""
+        if cls._sector_map is not None:
+            return cls._sector_map
+        cls._sector_map = {}
+        try:
+            from src.data.local_store import get_sector_map
+            cached = get_sector_map()
+            stock_set = cached.get("stock", set())
+            # 对股票型ETF，进一步按SW1行业分类
+            import sys, os
+            _qmt_lib = r'D:/长城策略交易系统/bin.x64/Lib/site-packages'
+            if _qmt_lib not in sys.path:
+                sys.path.insert(0, _qmt_lib)
+            from xtquant import xtdata
+            sw1_sectors = [s for s in xtdata.get_sector_list() if s.startswith('SW1') and not s.startswith('SW1加权')]
+            for sw1 in sw1_sectors:
+                stocks = set(xtdata.get_stock_list_in_sector(sw1))
+                label = sw1.replace('SW1', '')
+                for qc in stocks:
+                    if qc in stock_set:
+                        cls._sector_map[qc] = label
+        except Exception:
+            pass
+        return cls._sector_map
+
+    @classmethod
+    def _extract_index(cls, name: str) -> str:
+        """去重标识：优先SW1行业，回退名称"""
+        return name  # 由 _select_etfs 内的 sector_map 逻辑处理
+
+    @staticmethod
+    def _score_etf(metrics: dict) -> float:
+        """统一因子评分 — 动量+低波+夏普+量比，同类内部排序"""
+        mom = max(-0.5, min(0.5, metrics.get('mom_60d', 0))) + 0.5
+        vol = metrics.get('ann_vol', 0.3)
+        vol_s = max(0, 1 - vol / 0.6) if vol > 0 else 0.5
+        sharpe = max(0, min(1, (metrics.get('sharpe60', 0) + 2) / 6))
+        # 量比: 5日均量/20日均量, >1=放量活跃(flow proxy)
+        turnover = metrics.get('turnover', 1.0)
+        flow_s = min(1.5, max(0.5, turnover)) / 1.5
+        return mom * 0.30 + vol_s * 0.30 + sharpe * 0.25 + flow_s * 0.15
+
+    def _select_etfs(self, class_type: str, target_weight: float,
+                     scores: dict, confidence: float,
+                     etf_universe: dict = None,
+                     current_codes: set = None) -> dict:
+        """从候选池中按评分选出最优ETF，同指数只保留得分最高的。
+        current_codes: 当前持有的代码集合，持有中的ETF评分加成10%（持仓惯性）
+        """
+        source = etf_universe if etf_universe is not None else self.ETF_UNIVERSE
+        candidates = source.get(class_type, [])
+        if not candidates:
+            return {}
+
+        hold_bonus = 1.10  # 持有中的ETF评分加成10%
+        current_set = current_codes or set()
+        top_n = self.TOP_N.get(class_type, 2)
+        ranked = []
+        for code, name in candidates:
+            metrics = scores.get(code, {})
+            sc = self._score_etf(metrics) if metrics else 0.5
+            if code in current_set:
+                sc *= hold_bonus  # 持仓惯性加分
+            ranked.append((code, name, sc))
+        ranked.sort(key=lambda x: x[2], reverse=True)
+
+        # 去重：同SW1行业/同指数的ETF只保留得分最高的
+        sector_map = self._get_sector_map() if class_type == "Stock" else {}
+        selected = []
+        seen = set()
+        for code, name, sc in ranked:
+            qc = f"{code}.SH" if code.startswith(("5","6","51","56","58","59")) else f"{code}.SZ"
+            # 优先用SW1行业去重，回退到名称关键词
+            sector = sector_map.get(qc, "")
+            tag = sector if sector else self._extract_index(name)
+            if tag in seen:
+                continue
+            seen.add(tag)
+            selected.append((code, name, sc))
+            if len(selected) >= top_n:
+                break
+
+        # 如果去重后数量不够，用非去重列表补足
+        if len(selected) < min(top_n, 2):
+            for code, name, sc in ranked:
+                if (code, name, sc) not in selected:
+                    selected.append((code, name, sc))
+                    if len(selected) >= min(top_n, 2):
+                        break
+
+        # 按得分比例分配该类别权重
+        total_score = sum(s[2] for s in selected)
+        if total_score == 0:
+            total_score = len(selected)
+
+        result = {}
+        for code, name, sc in selected:
+            w = target_weight * sc / total_score
+            n = len(selected)
+            w = w * confidence + (target_weight / n) * (1 - confidence)
+            result[code] = {"name": name, "type": class_type, "weight": round(w, 4)}
+
+        # 单只最低权重 2%，过低则剔除（防过度分散，仅多只ETF类别生效）
+        if len(result) > 2:
+            to_drop = [c for c, v in result.items() if v["weight"] < 0.02]
+            if len(result) - len(to_drop) >= 2:  # 至少保留2只
+                for c in to_drop:
+                    del result[c]
+                # 重新归一化
+                total = sum(v["weight"] for v in result.values())
+                if total > 0:
+                    for v in result.values():
+                        v["weight"] = round(v["weight"] / total, 4)
+
+        return result
+
+    def _compute_rotation_speed(self, etf_scores: dict, etf_universe: dict) -> float:
+        """行业轮动速度 (0~1). 用股票ETF动量截面离散度做代理"""
+        if not etf_universe or not etf_scores:
+            return 0.5
+        stock_moms = []
+        for item in etf_universe.get('Stock', []):
+            code = item[0] if isinstance(item, (list, tuple)) else item
+            mom = etf_scores.get(code, {}).get('mom_60d', 0)
+            if isinstance(mom, (int, float)) and abs(mom) < 2:
+                stock_moms.append(float(mom))
+        if len(stock_moms) < 10:
+            return 0.5
+        arr = np.array(stock_moms)
+        dispersion = float(np.std(arr) / (np.mean(np.abs(arr)) + 0.001))
+        return min(1.0, max(0.0, dispersion / 3))
+
+    def decide(self, macro_analysis: dict, etf_scores: dict = None,
+               etf_universe: dict = None,
+               current_codes: set = None) -> dict:
+        """ETF组合决策。周期定大类比例，因子做同类排序，轮动速度调风险敞口"""
+        cycle = macro_analysis["cycle_phase"]
+        confidence = macro_analysis.get("confidence", 0.5)
+
+        class_weights = dict(self.CLASS_TARGETS.get(cycle, self.CLASS_TARGETS['滞胀期']))
+
+        # 行业轮动速度调节：高轮动 → 降股票、加债券
+        rotation = self._compute_rotation_speed(etf_scores, etf_universe)
+        if rotation > 0.6:  # 轮动剧烈
+            shift = (rotation - 0.5) * 0.3  # 最多移30%
+            class_weights['Stock'] = max(0.05, class_weights['Stock'] - shift)
+            class_weights['Bond'] = min(0.80, class_weights['Bond'] + shift * 0.7)
+            class_weights['Commodity'] = min(0.50, class_weights['Commodity'] + shift * 0.3)
+        if not class_weights:
+            raise ValueError(f"Unknown cycle: {cycle}")
+
+        if etf_scores is None:
+            etf_scores = {}
+
+        portfolio = {}
+        for class_type, target_w in class_weights.items():
+            selected = self._select_etfs(class_type, target_w, etf_scores, confidence,
+                                         etf_universe=etf_universe,
+                                         current_codes=current_codes)
+            portfolio.update(selected)
+
+        # 风险控制
+        portfolio, _ = self._apply_risk_controls(portfolio)
+
+        # 资产类别平滑：限制单次调仓的类别偏移（防换手）
+        prev_class = getattr(self, '_prev_class_weights', None)
+        if prev_class:
+            MAX_SHIFT = 0.15  # 单次最多偏移15%
+            actual = {"Stock": 0, "Bond": 0, "Commodity": 0}
+            for code, info in portfolio.items():
+                actual[info["type"]] += info["weight"]
+            for t in actual:
+                if actual[t] > 0:
+                    actual[t] = round(actual[t], 4)
+
+            # 钳制每类偏移不超过 MAX_SHIFT
+            overflow = 0.0
+            for t in ["Stock", "Bond", "Commodity"]:
+                lo = max(0, prev_class[t] - MAX_SHIFT)
+                hi = min(1, prev_class[t] + MAX_SHIFT)
+                if actual[t] > hi:
+                    overflow += actual[t] - hi
+                    actual[t] = hi
+                elif actual[t] < lo:
+                    overflow -= lo - actual[t]
+                    actual[t] = lo
+
+            # 多余份额按比例分配给未触限的类别
+            if abs(overflow) > 0.001:
+                free = [t for t in actual if prev_class[t] - MAX_SHIFT < actual[t] < prev_class[t] + MAX_SHIFT]
+                if not free:
+                    free = list(actual.keys())
+                for t in free:
+                    actual[t] += overflow / len(free)
+
+            # 缩放 portfolio 内各 ETF 权重以匹配修正后的类别权重
+            for class_type in ["Stock", "Bond", "Commodity"]:
+                class_codes = [c for c, i in portfolio.items() if i["type"] == class_type]
+                old_total = sum(portfolio[c]["weight"] for c in class_codes)
+                if old_total > 0 and actual[class_type] > 0:
+                    scale = actual[class_type] / old_total
+                    for c in class_codes:
+                        portfolio[c]["weight"] = round(portfolio[c]["weight"] * scale, 4)
+
+        self._prev_class_weights = {"Stock": 0, "Bond": 0, "Commodity": 0}
+        for code, info in portfolio.items():
+            self._prev_class_weights[info["type"]] += info["weight"]
+
+        return {
+            "cycle_phase": cycle,
+            "confidence": confidence,
+            "portfolio": portfolio,
+            "decision_date": macro_analysis.get("metadata", {}).get("input_date", "")
+        }
+
+    def _apply_risk_controls(self, portfolio: Dict) -> tuple:
+        """应用风险控制"""
+        warnings_list = []
+        stock_ratio = sum(p["weight"] for p in portfolio.values() if p["type"] == "Stock")
+        gold_ratio = sum(p["weight"] for p in portfolio.values() if p["type"] == "Commodity")
+
+        if stock_ratio > self.CONSTRAINTS["max_stock_ratio"]:
+            scale = self.CONSTRAINTS["max_stock_ratio"] / stock_ratio
+            for p in portfolio.values():
+                if p["type"] == "Stock":
+                    p["weight"] *= scale
+
+        if gold_ratio > self.CONSTRAINTS["max_gold_ratio"]:
+            scale = self.CONSTRAINTS["max_gold_ratio"] / gold_ratio
+            for p in portfolio.values():
+                if p["type"] == "Commodity":
+                    p["weight"] *= scale
+
+        # 归一化
+        total = sum(p["weight"] for p in portfolio.values())
+        for p in portfolio.values():
+            p["weight"] = round(p["weight"] / total, 4)
+
+        return portfolio, warnings_list
+
+
+# ==================== MacroDrivenETFAgent ====================
+
+class MacroDrivenETFAgent(ETFAgentBase):
+    """宏观驱动ETF策略Agent - 继承ETFAgentBase"""
+
+    def __init__(self, use_llm: bool = False, **kwargs):
+        # 数据库配置
+        db_config = {
+            'host': os.getenv('CHDB_HOST'),
+            'port': int(os.getenv('CHDB_PORT', 20108)),
+            'user': os.getenv('CHDB_USER'),
+            'password': os.getenv('CHDB_PASSWORD'),
+            'database': os.getenv('CHDB_DATABASE', 'etf')
+        }
+
+        super().__init__(name="MacroDrivenETFStrategy", db_config=db_config, **kwargs)
+
+        self.use_llm = use_llm
+
+        # 初始化Agents
+        print("[INFO] Initializing DataAgent...")
+        self.data_agent = DataAgent(_DATA_PATH)
+        self.data_agent.load_all_data()
+
+        print("[INFO] Initializing MacroAgent...")
+        self.macro_agent = MacroAgent(use_llm=use_llm)
+
+        self._etf_universe = None  # 动态ETF宇宙，通过set_etf_universe()设置
+
+        print("[INFO] Initializing PortfolioAgent...")
+        self.portfolio_agent = PortfolioAgent()
+
+        # 缓存路径
+        self.cache_path = Path(_CACHE_PATH)
+
+        print("[SUCCESS] MacroDrivenETFAgent initialized")
+
+    def load_current_data(self, curr_date: str) -> dict:
+        """
+        加载当前日期所需要的数据
+        cufel_arena 接口
+        """
+        try:
+            # 尝试从数据库加载ETF数据
+            if _CUFEL_AVAILABLE:
+                from quantchdb import ClickHouseDatabase
+                db = ClickHouseDatabase(config=self.db_config, terminal_log=False)
+                sql = f'''
+                    SELECT code
+                    FROM etf.etf_day
+                    WHERE date = '{curr_date}'
+                    ORDER BY date DESC
+                    LIMIT 20
+                '''
+                df = db.fetch(sql)
+                available_codes = df['code'].tolist() if len(df) > 0 else []
+            else:
+                available_codes = []
+
+            return {
+                "data_available": True,
+                "date": curr_date,
+                "available_codes": available_codes
+            }
+        except Exception as e:
+            return {
+                "data_available": False,
+                "date": curr_date,
+                "error": str(e)
+            }
+
+    def _fetch_etf_scores(self, curr_date: str, etf_universe: dict = None) -> dict:
+        """从 xtdata/QMT 获取全量候选ETF的技术评分
+
+        Returns: {code: {pos_60, pos_120, mom_21d, ann_vol}}  (0~1 范围)
+        """
+        all_codes = []
+        source = etf_universe if etf_universe is not None else self.portfolio_agent.ETF_UNIVERSE
+        for codes in source.values():
+            for item in codes:
+                code = item[0] if isinstance(item, (list, tuple)) else item
+                all_codes.append(code)
+        if not all_codes:
+            return {}
+
+        try:
+            from src.data.local_store import get_bars
+            bars = get_bars(all_codes, days=130)
+            if not bars:
+                return {}
+
+            import numpy as np
+            scores = {}
+            for code in all_codes:
+                df = bars.get(code)
+                if df is None or len(df) < 10:
+                    scores[code] = {"pos_60": 0.5, "pos_120": 0.5, "mom_21d": 0.0, "ann_vol": 0.3}
+                    continue
+                c = df['close'].values; h = df['high'].values; l = df['low'].values
+                latest_close = float(c[-1])
+                n60 = min(60, len(c))
+                pos_60 = (latest_close - l[-n60:].min()) / (h[-n60:].max() - l[-n60:].min()) if h[-n60:].max() > l[-n60:].min() else 0.5
+                n120 = min(120, len(c))
+                pos_120 = (latest_close - l[-n120:].min()) / (h[-n120:].max() - l[-n120:].min()) if h[-n120:].max() > l[-n120:].min() else 0.5
+                s = pd.Series(c[-min(60, len(c)):])
+                lr = np.log(s / s.shift(1)).dropna()
+                ann_vol = float(lr.std() * np.sqrt(252)) if len(lr) > 5 else 0.3
+                mom_21d = float(c[-1] / c[-22] - 1) if len(c) >= 22 else 0
+                mom_60d = float(c[-1] / c[-61] - 1) if len(c) >= 61 else mom_21d
+                # QMT 等效因子
+                # bias60: (close-MA60)/MA60, 替代pos_60
+                ma60 = np.mean(c[-60:]) if len(c) >= 60 else c[-1]
+                bias60 = float((c[-1] - ma60) / ma60) if ma60 > 0 else 0
+                # bull/bear power: 多空力道
+                ema13 = pd.Series(c).ewm(span=13).mean().iloc[-1]
+                bull = float((h[-1] - ema13) / c[-1]) if c[-1] > 0 else 0
+                bear = float((l[-1] - ema13) / c[-1]) if c[-1] > 0 else 0
+                net_power = bull + bear  # bear为负，net=多空净值
+                # MFI: 资金流量指标 (14日)
+                tp = (h[-14:] + l[-14:] + c[-14:]) / 3
+                mf = tp * df['volume'].values[-14:].astype(float) if 'volume' in df.columns else tp
+                pos_mf = np.sum(mf[tp[-len(mf):] > np.roll(tp[-len(mf):], 1)[:len(mf)]]) if len(mf) >= 2 else 1
+                neg_mf = np.sum(mf[tp[-len(mf):] < np.roll(tp[-len(mf):], 1)[:len(mf)]]) if len(mf) >= 2 else 1
+                mfi = float(100 - 100 / (1 + pos_mf / (neg_mf + 0.0001)))
+                # 换手率
+                vol_col = df['volume'] if 'volume' in df.columns else pd.Series([0])
+                v = vol_col.values[-20:].astype(float) if len(vol_col) >= 20 else np.ones(20)
+                v5 = v[-5:] if len(v) >= 5 else v
+                turnover = float(np.mean(v5) / (np.mean(v) + 0.0001))
+                # 夏普比率 60日
+                rets = np.diff(np.log(c[-60:])) if len(c) >= 60 else [0]
+                sharpe60 = float(np.mean(rets) / (np.std(rets) + 0.0001) * np.sqrt(252))
+                # 偏度 60日（负偏度=暴跌风险）
+                skew60 = float(pd.Series(rets).skew()) if len(rets) > 5 else 0
+                # CCI 20：商品通道指数
+                tp20 = (h[-20:] + l[-20:] + c[-20:]) / 3
+                ma20 = np.mean(tp20)
+                md20 = np.mean(np.abs(tp20 - ma20))
+                cci20 = float((tp20[-1] - ma20) / (0.015 * md20 + 0.0001))
+                # 周期自适应所需附加因子
+                price3m = float(c[-1] / c[-61] - 1) if len(c) >= 61 else mom_60d
+                ema_12 = pd.Series(c).ewm(span=12).mean().iloc[-1]
+                ema_26 = pd.Series(c).ewm(span=26).mean().iloc[-1]
+                macdc_val = float((ema_12 - ema_26) / c[-1]) if c[-1] > 0 else 0
+                boll_ma = np.mean(c[-20:]) if len(c) >= 20 else c[-1]
+                boll_std = np.std(c[-20:]) if len(c) >= 20 else 0
+                boll_up_val = float((boll_ma + 2*boll_std) / c[-1] - 1) if c[-1] > 0 else 0
+                var20 = float(np.var(rets[-20:]) * 252) if len(rets) >= 20 else ann_vol
+                var60 = ann_vol  # already computed as 60-day
+                tr_arr = np.maximum(h[-14:]-l[-14:], np.maximum(np.abs(h[-14:]-np.roll(c[-15:-1],1)[-14:]), np.abs(l[-14:]-np.roll(c[-15:-1],1)[-14:]))) if len(c) >= 15 else [0]
+                atr_val = float(np.mean(tr_arr) / c[-1]) if c[-1] > 0 else 0
+                ema120_val = float(pd.Series(c).ewm(span=120).mean().iloc[-1] / c[-1]) if c[-1] > 0 else 1.0
+                scores[code] = {"ann_vol": round(ann_vol, 4),
+                                "mom_60d": round(mom_60d, 4),
+                                "price3m": round(price3m, 4),
+                                "macdc": round(macdc_val, 4),
+                                "boll_up": round(boll_up_val, 4),
+                                "variance20": round(var20, 4),
+                                "variance60": round(var60, 4),
+                                "atr14": round(atr_val, 4),
+                                "ema120": round(ema120_val, 4),
+                                "sharpe60": round(sharpe60, 4)}
+            return scores
+        except Exception as e:
+            warnings.warn(f"ETF scoring failed: {e}")
+            return {}
+
+    def _dedup_correlation(self, portfolio: dict, curr_date: str) -> dict:
+        """残差相关性去重：仅股票类内，22日滚动，阈值0.95，至少保留3只"""
+        stock_codes = [c for c, p in portfolio.items() if p.get("type") == "Stock"]
+        if len(stock_codes) < 4:
+            return portfolio  # 股票ETF少于4只，无需去重
+
+        # 获取22日收盘价（含市场基准510300）
+        codes_to_fetch = list(set(stock_codes + ["510300"]))
+        try:
+            from src.data.local_store import get_bars
+            bars = get_bars(codes_to_fetch, days=30)
+            if not bars:
+                return portfolio
+            # 合并为统一DataFrame
+            frames = []
+            for c, df in bars.items():
+                df2 = df[['close']].copy()
+                df2['code'] = c
+                df2 = df2.reset_index().rename(columns={'index': 'date'})
+                frames.append(df2)
+            if not frames:
+                return portfolio
+            raw = pd.concat(frames, ignore_index=True)
+            raw["date"] = pd.to_datetime(raw["date"])
+        except:
+            return portfolio
+
+        # 市场基准收益率
+        mkt = raw[raw["code"] == "510300"]
+        if len(mkt) < 22:
+            return portfolio
+        mkt_ret = mkt["close"].tail(22).pct_change().dropna()
+        if len(mkt_ret) < 15:
+            return portfolio
+
+        # 逐对比较残差相关
+        to_remove = set()
+        for i in range(len(stock_codes)):
+            if stock_codes[i] in to_remove:
+                continue
+            for j in range(i + 1, len(stock_codes)):
+                if stock_codes[j] in to_remove:
+                    continue
+                s1 = raw[raw["code"] == stock_codes[i]]
+                s2 = raw[raw["code"] == stock_codes[j]]
+                if len(s1) < 22 or len(s2) < 22:
+                    continue
+                r1 = s1["close"].tail(22).pct_change().dropna()
+                r2 = s2["close"].tail(22).pct_change().dropna()
+                if len(r1) < 15 or len(r2) < 15:
+                    continue
+                # 残差 = 扣掉市场beta
+                m = mkt_ret.iloc[-len(r1):] if len(mkt_ret) >= len(r1) else mkt_ret
+                beta1 = np.cov(r1, m)[0, 1] / np.var(m) if np.var(m) > 0 else 1
+                beta2 = np.cov(r2, m)[0, 1] / np.var(m) if np.var(m) > 0 else 1
+                resid1 = r1 - beta1 * m
+                resid2 = r2 - beta2 * m
+                corr = resid1.corr(resid2)
+                if corr > 0.95:
+                    w1 = portfolio[stock_codes[i]]["weight"]
+                    w2 = portfolio[stock_codes[j]]["weight"]
+                    loser = stock_codes[j] if w1 >= w2 else stock_codes[i]
+                    to_remove.add(loser)
+
+        # 执行去重：至少保留3只
+        if to_remove and (len(stock_codes) - len(to_remove)) >= 3:
+            for c in to_remove:
+                del portfolio[c]
+            total = sum(p["weight"] for p in portfolio.values())
+            if total > 0:
+                for p in portfolio.values():
+                    p["weight"] = round(p["weight"] / total, 4)
+            print(f"[去重] 移除{len(to_remove)}只高相关ETF: {to_remove}")
+
+        return portfolio
+
+    def set_etf_universe(self, universe: dict):
+        """设置动态ETF宇宙（绕过基类签名检查）"""
+        self._etf_universe = universe
+
+    def get_current_holdings(self, curr_date: str, feedback: str = None,
+                             theta: float = None) -> dict:
+        """
+        获取当前日期的持仓。
+        如需持仓惯性加成，在调用前设置 self._prev_codes = {'510300', ...}
+        """
+        etf_universe = getattr(self, '_etf_universe', None)
+        # 检查缓存（回测模式有 _prev_codes 时跳过缓存）
+        cache_file = self.cache_path / f"holdings_{curr_date}.json"
+        if cache_file.exists() and getattr(self, '_prev_codes', None) is None:
+            try:
+                with open(cache_file, 'r') as f:
+                    cached = json.load(f)
+                weights = list(cached.values())[0].values()
+                if not any(isinstance(w, float) and w != w for w in weights):
+                    if theta is not None and theta != 1.0:
+                        return self._adjust_holdings_theta(cached, theta)
+                    return cached
+            except:
+                pass
+
+        # 解析日期
+        try:
+            date_obj = datetime.strptime(curr_date, "%Y-%m-%d")
+        except:
+            date_obj = datetime.strptime(curr_date, "%Y%m%d")
+
+        # 获取宏观数据
+        macro_data = self.data_agent.get_macro_for_decision(date_obj)
+
+        # 宏观分析
+        macro_analysis = self.macro_agent.analyze(macro_data)
+        macro_analysis["metadata"]["input_date"] = curr_date
+
+        # 获取全量ETF技术评分（动态宇宙优先）
+        etf_scores = self._fetch_etf_scores(curr_date, etf_universe=etf_universe)
+
+        # 组合决策（传入技术评分 + 动态宇宙用于动态选ETF）
+        prev = getattr(self, '_prev_codes', None)
+        decision = self.portfolio_agent.decide(macro_analysis, etf_scores=etf_scores,
+                                               etf_universe=etf_universe,
+                                               current_codes=prev)
+
+        # 残差相关性去重（股票类内，22日滚动，阈值0.95）
+        decision["portfolio"] = self._dedup_correlation(decision["portfolio"], curr_date)
+
+        # 转换为持仓格式
+        portfolio = decision["portfolio"]
+        holdings = {curr_date: {}}
+
+        for code, info in portfolio.items():
+            holdings[curr_date][code] = info["weight"]
+
+        # 验证权重
+        total = sum(holdings[curr_date].values())
+        if abs(total - 1.0) > 1e-6:
+            print(f"[WARNING] Holdings weight sum = {total}, normalizing...")
+            holdings[curr_date] = {k: round(v / total, 4) for k, v in holdings[curr_date].items()}
+
+        # 保存缓存
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(cache_file, 'w') as f:
+                json.dump(holdings, f)
+        except:
+            pass
+
+        # 应用风险偏好调整
+        if theta is not None and theta != 1.0:
+            holdings = self._adjust_holdings_theta(holdings, theta)
+
+        return holdings
+
+    def _adjust_holdings_theta(self, holdings: dict, theta: float) -> dict:
+        """根据风险偏好调整持仓 — θ<1 保守（降股票+债券），θ>1 激进（增股票+黄金）"""
+        curr_date = list(holdings.keys())[0]
+        weights = holdings[curr_date]
+
+        etf_uni = getattr(self, '_etf_universe', None)
+        if etf_uni is None:
+            etf_uni = self.portfolio_agent.ETF_UNIVERSE
+        all_stock = {c for c, _ in etf_uni.get("Stock", [])}
+        all_bond = {c for c, _ in etf_uni.get("Bond", [])}
+        all_gold = {c for c, _ in etf_uni.get("Commodity", [])}
+
+        stock_codes = [c for c in weights if c in all_stock]
+        bond_codes = [c for c in weights if c in all_bond]
+        gold_codes = [c for c in weights if c in all_gold]
+
+        if theta == 1.0 or len(stock_codes) == 0:
+            return holdings
+
+        stock_total = sum(weights.get(c, 0) for c in stock_codes)
+        bond_total = sum(weights.get(c, 0) for c in bond_codes) if bond_codes else 0
+        gold_total = sum(weights.get(c, 0) for c in gold_codes) if gold_codes else 0
+
+        new_weights = dict(weights)
+
+        if theta < 1.0:
+            # 保守：股票按 θ 打折，差額转给债券
+            for c in stock_codes:
+                new_weights[c] = round(weights[c] * theta, 4)
+            reduced = stock_total * (1 - theta)
+            recipients = bond_codes or gold_codes or stock_codes
+            for c in recipients:
+                new_weights[c] = round(weights.get(c, 0) + reduced / len(recipients), 4)
+        else:
+            # 激进：θ>1 增持股票(+黄金)，减持债券
+            # 债券按 1/θ 打折，差額按2:1分配给股票和黄金
+            targets = stock_codes + gold_codes
+            if bond_codes and bond_total > 0:
+                for c in bond_codes:
+                    new_weights[c] = round(weights[c] / theta, 4)
+                freed = bond_total * (1 - 1/theta)
+                stock_share = freed * 0.67
+                gold_share = freed * 0.33
+                for c in stock_codes:
+                    new_weights[c] = round(weights.get(c, 0) + stock_share / len(stock_codes), 4)
+                for c in gold_codes:
+                    new_weights[c] = round(weights.get(c, 0) + gold_share / len(gold_codes), 4)
+            else:
+                # 没债券可减：直接拉升股票
+                scale = theta  # theta∈(1,2] → 股票权重×1~2
+                for c in stock_codes:
+                    new_weights[c] = round(weights[c] * scale, 4)
+
+        # 归一化
+        total = sum(new_weights.values())
+        new_weights = {k: round(v / total, 4) for k, v in new_weights.items()}
+
+        holdings[curr_date] = new_weights
+        return holdings
+
+    def get_current_holdings_intraday(self, curr_datetime: str, feedback: str = None, theta: float = None) -> dict:
+        """
+        获取当前时间点的盘中持仓
+        cufel_arena 接口
+
+        Parameters
+        ----------
+        curr_datetime : str
+            当前时间点，格式为 'YYYY-MM-DD HH:MM:SS'
+        feedback : str, optional
+            来自 FOF Agent 的反馈信息
+        theta : float, optional
+            风险偏好系数
+
+        Returns
+        -------
+        dict
+            持仓字典 {curr_datetime: {code: weight, ...}}
+        """
+        # 提取日期部分，使用日频持仓
+        date_str = curr_datetime.split(" ")[0]
+        return self.get_current_holdings(date_str, feedback=feedback, theta=theta)
+
+
+if __name__ == "__main__":
+    # 测试代码
+    print("[TEST] Testing MacroDrivenETFAgent...")
+
+    agent = MacroDrivenETFAgent(use_llm=False)
+
+    # 测试数据加载
+    data_info = agent.load_current_data('2024-03-31')
+    print("Data available:", data_info.get('data_available'))
+
+    # 测试持仓获取
+    holdings = agent.get_current_holdings('2024-03-31')
+    print("Holdings:", holdings)
+
+    # 测试风险偏好调整
+    holdings_adj = agent.get_current_holdings('2024-03-31', theta=0.7)
+    print("Adjusted holdings (theta=0.7):", holdings_adj)
