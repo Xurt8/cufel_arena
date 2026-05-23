@@ -262,10 +262,11 @@ def redeploy_cash(C, available_cash):
     if not tw or available_cash < 500: return
 
     # Compute current MV per code
-    tick_all = C.get_full_tick(list(g.holdings.keys()))
+    tick_all = C.get_full_tick([code_to_qmt(c) if "." not in c else c for c in g.holdings])
     mv = {}
     for qc, sh in g.holdings.items():
-        p = tick_all[qc].get("lastPrice", 0) if tick_all and qc in tick_all else 0
+        qmt = code_to_qmt(qc) if "." not in qc else qc
+        p = tick_all[qmt].get("lastPrice", 0) if tick_all and qmt in tick_all else 0
         mv[qc.split(".")[0]] = sh * p
     total_mv = sum(mv.values())
     total_assets = total_mv + available_cash
@@ -1216,11 +1217,12 @@ def handlebar(C):
         acct_rows = get_trade_detail_data(account, "stock", "account")
         if acct_rows:
             bal = float(getattr(acct_rows[0], "m_dBalance", 0))
-            tick_all = C.get_full_tick(list(g.holdings.keys()))
+            tick_all = C.get_full_tick([code_to_qmt(c) if "." not in c else c for c in g.holdings])
             total_mv = 0
             for qc, sh in g.holdings.items():
-                if tick_all and qc in tick_all:
-                    total_mv += sh * tick_all[qc].get("lastPrice", 0)
+                qmt = code_to_qmt(qc) if "." not in qc else qc
+                if tick_all and qmt in tick_all:
+                    total_mv += sh * tick_all[qmt].get("lastPrice", 0)
             available_cash = bal - total_mv
             if available_cash > 2000:
                 redeploy_cash(C, available_cash)
