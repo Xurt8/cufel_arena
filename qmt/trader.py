@@ -780,13 +780,22 @@ def _verify_rebalance(C, target_weights, today, batch_path, batch_state):
 # 
 
 def export_holdings(C):
-    """Export holdings to JSON with totalAssets from C context"""
+    """Export holdings to JSON with account balance"""
     if not g.holdings: return
     try:
+        bal = 0
+        try:
+            acct_rows = get_trade_detail_data(account, "stock", "account")
+            if acct_rows:
+                for attr in ["m_dBalance", "m_dAvailable"]:
+                    if hasattr(acct_rows[0], attr):
+                        bal = round(float(getattr(acct_rows[0], attr)), 2)
+                        break
+        except: pass
         d = get_script_dir()
         hold_report = {
             "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "total_balance": round(float((getattr(C, "totalAssets", 0) or getattr(g, "_ctx_balance", 0))), 2),
+            "total_balance": bal,
             "positions": []
         }
         pos_rows = get_trade_detail_data(account, "stock", "position")
