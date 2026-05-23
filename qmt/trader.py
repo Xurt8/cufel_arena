@@ -779,6 +779,47 @@ def _verify_rebalance(C, target_weights, today, batch_path, batch_state):
 
 # 
 
+def export_holdings(C):
+    """Export holdings to JSON with totalAssets from C context"""
+    if not g.holdings: return
+    try:
+        d = get_script_dir()
+        hold_report = {
+            "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "total_balance": round(float(getattr(C, "totalAssets", 0)), 2),
+            "positions": []
+        }
+        pos_rows = get_trade_detail_data(account, "stock", "position")
+        pos_map = {}
+        if pos_rows:
+            for r in pos_rows:
+                c_ = str(r.m_strInstrumentID).split(".")[0]
+                pos_map[c_] = {
+                    "shares": int(r.m_nVolume),
+                    "can_use": int(r.m_nCanUseVolume),
+                    "cost": round(float(r.m_dOpenPrice), 3) if hasattr(r, "m_dOpenPrice") else 0,
+                    "profit": round(float(r.m_dPositionProfit), 2) if hasattr(r, "m_dPositionProfit") else 0,
+                    "mv": round(float(r.m_dMarketValue), 2) if hasattr(r, "m_dMarketValue") else 0,
+                }
+        for qmt_code, shares in g.holdings.items():
+            code = qmt_code.split(".")[0]
+            pnl = pos_map.get(code, {})
+            price = pnl.get("mv", 0) / shares if pnl.get("mv", 0) > 0 and shares > 0 else 0
+            hold_report["positions"].append({
+                "code": code, "shares": shares, "price": round(price, 3),
+                "cost": pnl.get("cost", 0), "profit": pnl.get("profit", 0),
+                "market_value": pnl.get("mv", 0),
+            })
+        total_mv = sum(p.get("market_value", 0) for p in hold_report["positions"])
+        if hold_report["total_balance"] > 0:
+            hold_report["available_cash"] = round(hold_report["total_balance"] - total_mv, 2)
+        else:
+            hold_report["available_cash"] = 0
+        with open(os.path.join(d, "qmt_holdings.json"), "w", encoding="utf-8") as f:
+            json.dump(hold_report, f, ensure_ascii=False)
+    except: pass
+
+
 def init(C):
 
     print(f"\n{'='*55}")
@@ -1091,7 +1132,8 @@ def handlebar(C):
 
         return
 
-    pass
+    # Refresh holdings with live totalAssets
+    export_holdings(C)
 
 # ======== run_time timers ========
 
