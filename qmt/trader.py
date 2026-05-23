@@ -812,6 +812,8 @@ def init(C):
 
                 "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
 
+                "total_balance": round(float(getattr(C, "totalAssets", 0)), 2),
+
                 "positions": []
 
             }
