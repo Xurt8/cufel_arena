@@ -596,8 +596,7 @@ class PortfolioAgent:
         ("信用债", "信用债"), ("短融", "短融"), ("科创债", "科创债"),
         ("公司债", "公司债"),
         ("货币", "货币"), ("添益", "货币"),
-        ("科创50", "科创50"), ("科创综指", "科创50"), ("科创100", "科创50"),
-        ("科创半导体", "科创芯片"), ("半导体", "芯片"), ("芯片", "芯片"),
+        ("科创", "科创"), ("半导体", "芯片"), ("芯片", "芯片"),
         ("消费电子", "消费电子"), ("消电", "消费电子"),
         ("A500", "A500"), ("沪深300", "沪深300"), ("中证500", "中证500"),
         ("创业板", "创业板"), ("上证50", "上证50"),
@@ -843,14 +842,22 @@ class PortfolioAgent:
                             sc.get("sharpe60", 0), sc.get("turnover", 1.0)))
 
         ranked = self._percentile_score(raw_data)
-        selected = ranked[:self.SATELLITE_N]
+        # 去重补位: 同tag只选1只, 向下填充
+        selected = []
+        seen_tags = set()
+        for code, score in ranked:
+            name = "ETF"
+            for item in source.get("Stock", []):
+                if item[0] == code:
+                    name = item[1]; break
+            tag = self._extract_index(name)
+            if tag in seen_tags: continue
+            seen_tags.add(tag)
+            selected.append((code, score, name))
+            if len(selected) >= self.SATELLITE_N: break
         if selected:
-            total_s = sum(s for _, s in selected)
-            for code, score in selected:
-                name = "ETF"
-                for item in source.get("Stock", []):
-                    if item[0] == code:
-                        name = item[1]; break
+            total_s = sum(s for _, s, _ in selected)
+            for code, score, name in selected:
                 w = alloc["stock_sat"] * score / total_s if total_s > 0 else alloc["stock_sat"] / len(selected)
                 portfolio[code] = {"name": name, "type": "Stock", "weight": w}
         elif alloc["stock_sat"] > 0:
