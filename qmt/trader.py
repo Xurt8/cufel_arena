@@ -349,6 +349,20 @@ def run_stoploss(C):
                     except:
                         pass
 
+                    # Redeploy freed cash to target ETFs
+                    freed_cash = order_price * info["qty"]
+                    tw = (g.orders or {}).get("target_weights", {})
+                    if tw and freed_cash > 1000:
+                        targets = dict(tw)
+                        hold_targets = [c for c in targets if c in g.holdings or code_to_qmt(c) in g.holdings]
+                        if not hold_targets:
+                            hold_targets = sorted(targets, key=targets.get, reverse=True)[:2]
+                        n = min(len(hold_targets), 2)
+                        for tc in hold_targets[:n]:
+                            tq = code_to_qmt(tc)
+                            do_buy(C, tq, int(freed_cash / n), "fill_" + code)
+                        print(f"  [FILL] stop={code} freed={freed_cash:.0f}yuan -> {n} targets")
+
                 except Exception as e:
 
                     print(f"  [FAIL] {qmt_code}: {e}")
