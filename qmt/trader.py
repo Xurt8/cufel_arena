@@ -282,7 +282,7 @@ def run_stoploss(C):
 
         qmt_code = code_to_qmt(code)
 
-        if qmt_code not in g.holdings: continue  # 
+        if qmt_code not in g.holdings and code not in g.holdings: continue 
 
         try:
 
@@ -885,7 +885,7 @@ def init(C):
 
         n_sell = len(trades.get("stop_sell", [])) + len([o for o in trades.get("rebalance", []) if o.get("direction") == "sell"])
         n_buy = len([o for o in trades.get("rebalance", []) if o.get("direction") == "buy"])
-        print(f"  [Orders] {date} | sell={n_sell} buy={n_buy} | stops={sum(1 for c in g.stops if code_to_qmt(c) in g.holdings)}/{len(g.stops)}")
+        print(f"  [Orders] {date} | sell={n_sell} buy={n_buy} | stops={sum(1 for c in g.stops if code_to_qmt(c) in g.holdings or c in g.holdings)}/{len(g.stops)}")
 
         # universe
 
