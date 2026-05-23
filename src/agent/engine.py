@@ -1080,10 +1080,15 @@ class MacroDrivenETFAgent(ETFAgentBase):
             }
 
     def _fetch_etf_scores(self, curr_date: str, etf_universe: dict = None) -> dict:
-        """从 xtdata/QMT 获取全量候选ETF的技术评分
+        """从本地 parquet 获取全量候选ETF的技术评分，结果缓存到文件"""
+        import json as _json
+        _score_cache = Path(self.cache_path) / f"etf_scores_{curr_date}.json"
+        if _score_cache.exists():
+            try:
+                with open(_score_cache, 'r') as _f:
+                    return _json.load(_f)
+            except: pass
 
-        Returns: {code: {pos_60, pos_120, mom_21d, ann_vol}}  (0~1 范围)
-        """
         all_codes = []
         source = etf_universe if etf_universe is not None else self.portfolio_agent.ETF_UNIVERSE
         for codes in source.values():
@@ -1173,6 +1178,11 @@ class MacroDrivenETFAgent(ETFAgentBase):
                                 "atr14": round(atr_val, 4),
                                 "ema120": round(ema120_val, 4),
                                 "sharpe60": round(sharpe60, 4)}
+            try:
+                _score_cache.parent.mkdir(parents=True, exist_ok=True)
+                with open(_score_cache, 'w') as _f:
+                    _json.dump(scores, _f)
+            except: pass
             return scores
         except Exception as e:
             warnings.warn(f"ETF scoring failed: {e}")
