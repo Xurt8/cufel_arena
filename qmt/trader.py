@@ -782,7 +782,12 @@ def _verify_rebalance(C, target_weights, today, batch_path, batch_state):
 def export_holdings(C):
     """Export holdings to JSON with totalAssets from C context"""
     if not g.holdings: return
-    print("[DEBUG] C.totalAssets = " + str(getattr(C, 'totalAssets', 'NOT_FOUND')))
+    _all = [a for a in dir(C) if not a.startswith('_')]
+    _money = [a for a in _all if any(k in a.lower() for k in ['cash','balance','asset','fund','money','total','equity','capital'])]
+    print('[DEBUG] C money attrs: ' + str(_money))
+    for a in _money:
+        try: print('[DEBUG]   C.' + a + ' = ' + str(getattr(C, a)))
+        except: pass
     try:
         d = get_script_dir()
         hold_report = {
