@@ -75,15 +75,17 @@ def get_script_dir():
     return os.getcwd()
 
 def load_orders_file():
-    """Load orders JSON from QMT python directory"""
+    """Load orders JSON, try multiple paths"""
     import os, json
-    path = "D:长城策略交易系统\python\qmt_orders_latest.json"
-    if not os.path.exists(path):
-        path = os.path.join(os.getcwd(), "qmt_orders_latest.json")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    print(f"[ERROR] orders file not found")
+    candidates = [
+        r"D:\qmt_orders_latest.json",
+        os.path.join(os.getcwd(), "qmt_orders_latest.json"),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    print(f"[ERROR] orders file not found, cwd={os.getcwd()}")
     return None
 
 def code_to_qmt(code):
@@ -969,7 +971,7 @@ def init(C):
 
     # =================================================
 
-    print(f"  [] D1={g.d1_date}() D2={g.d2_date}() D3={g.d3_date}()")
+    print(f"  [Rebalance] D1={g.d1_date} D2={g.d2_date} D3={g.d3_date}")
 
     C.run_time("on_stoploss", "5nSecond", "2020-01-01 09:31:00")
 

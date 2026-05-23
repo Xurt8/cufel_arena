@@ -1276,6 +1276,9 @@ with tab_signal:
                            "trades": {"止损卖出": [], "调仓": []}}
             with open(os.path.join(qmt_dir, "qmt_orders_latest.json"), "w", encoding="utf-8") as f:
                 json.dump(export_data, f, ensure_ascii=False, indent=2)
+            # Also write a copy to D:\ for QMT discovery
+            with open(r"D:\qmt_orders_latest.json", "w", encoding="utf-8") as f:
+                json.dump(export_data, f, ensure_ascii=False, indent=2)
             st.success(f"已导出 QMT 指令 ({len(stops_export)} 只止损监控)")
         except Exception as e:
             st.warning(f"QMT 导出失败: {e}")
