@@ -329,7 +329,25 @@ def run_stoploss(C):
 
                     g.sold_codes.add(code)
 
-                    g.holdings.pop(qmt_code, None)  # 
+                    g.holdings.pop(qmt_code, None)
+
+                    # Log stop loss event
+                    g.deals.append({
+                        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "code": code, "name": info.get("name", code),
+                        "qty": info['qty'], "price": order_price,
+                        "peak": peak, "drawdown": round(drawdown, 1),
+                        "threshold": threshold, "reason": reason,
+                    })
+                    try:
+                        d = get_script_dir()
+                        with open(os.path.join(d, "stoploss_log.json"), "w", encoding="utf-8") as sf:
+                            json.dump({
+                                "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "events": g.deals
+                            }, sf, ensure_ascii=False)
+                    except:
+                        pass
 
                 except Exception as e:
 

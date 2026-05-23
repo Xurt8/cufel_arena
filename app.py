@@ -1337,6 +1337,25 @@ with tab_signal:
                     st.dataframe(pd.DataFrame(sd), use_container_width=True, hide_index=True)
         except Exception:
             st.caption("读取失败")
+
+    # 止损触发记录
+    sl_log_path = r"D:\长城策略交易系统\bin.x64\stoploss_log.json"
+    if os.path.exists(sl_log_path):
+        try:
+            with open(sl_log_path, "r", encoding="utf-8") as f:
+                sl_log = json.load(f)
+            events = sl_log.get("events", [])
+            if events:
+                st.divider()
+                st.subheader(f"🛑 止损触发记录 ({len(events)} 次)")
+                ed = [{"时间": e["time"], "代码": e["code"], "名称": e.get("name",""),
+                       "数量": e.get("qty",0), "成交价": e.get("price",0),
+                       "回撤": f"{e.get('drawdown',0):.1f}%", "类型": e.get("reason","")}
+                      for e in events]
+                st.dataframe(pd.DataFrame(ed), use_container_width=True, hide_index=True)
+        except Exception:
+            pass
+
     else:
         st.caption("尚未生成 QMT 指令")
 
