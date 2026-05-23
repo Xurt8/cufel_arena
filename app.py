@@ -1340,6 +1340,8 @@ with tab_signal:
 
     # 止损触发记录
     sl_log_path = r"D:\长城策略交易系统\bin.x64\stoploss_log.json"
+    if not os.path.exists(sl_log_path):
+        sl_log_path = r"D:\长城策略交易系统\python\stoploss_log.json"
     if os.path.exists(sl_log_path):
         try:
             with open(sl_log_path, "r", encoding="utf-8") as f:
