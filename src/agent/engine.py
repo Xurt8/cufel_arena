@@ -591,9 +591,10 @@ class PortfolioAgent:
 
     # 去重关键词（非股票类ETF用，股票类优先SW1行业）
     INDEX_PATTERNS = [
-        ("黄金", "黄金"), ("上海金", "黄金"),
+        ("黄金", "黄金"), ("上海金", "黄金"), ("金ETF", "黄金"),
         ("国债", "国债"), ("城投债", "城投债"), ("转债", "可转债"),
-        ("信用债", "信用债"), ("短融", "短融"),
+        ("信用债", "信用债"), ("短融", "短融"), ("科创债", "科创债"),
+        ("公司债", "公司债"),
         ("货币", "货币"), ("添益", "货币"),
         ("科创50", "科创50"), ("科创综指", "科创50"), ("科创100", "科创50"),
         ("科创半导体", "科创芯片"), ("半导体", "芯片"), ("芯片", "芯片"),
@@ -602,6 +603,7 @@ class PortfolioAgent:
         ("创业板", "创业板"), ("上证50", "上证50"),
         ("红利", "红利"), ("证券", "证券"), ("银行", "银行"),
         ("新能源", "新能源"), ("光伏", "新能源"),
+        ("石油ETF", "石油"),
         ("医药", "医药"), ("医疗", "医药"),
         ("军工", "军工"), ("通信", "通信"), ("5G", "通信"),
         ("汽车", "汽车"), ("机器人", "机器人"),
@@ -832,6 +834,24 @@ class PortfolioAgent:
     def _apply_risk_controls(self, portfolio: Dict) -> tuple:
         """应用风险控制"""
         warnings_list = []
+
+        # 兜底去重：同指数/同关键词的ETF只保留一个（合并权重到最高分者）
+        by_tag = {}
+        for code, p in list(portfolio.items()):
+            tag = self._extract_index(p["name"])
+            if tag not in by_tag:
+                by_tag[tag] = []
+            by_tag[tag].append((code, p["weight"]))
+        for tag, items in by_tag.items():
+            if len(items) > 1:
+                # 保留权重最高的，合并其他权重
+                items.sort(key=lambda x: x[1], reverse=True)
+                keeper = items[0][0]
+                merged_w = sum(w for _, w in items)
+                portfolio[keeper]["weight"] = merged_w
+                for code, _ in items[1:]:
+                    del portfolio[code]
+
         stock_ratio = sum(p["weight"] for p in portfolio.values() if p["type"] == "Stock")
         gold_ratio = sum(p["weight"] for p in portfolio.values() if p["type"] == "Commodity")
 
@@ -1069,12 +1089,17 @@ class MacroDrivenETFAgent(ETFAgentBase):
                 s2 = raw[raw["code"] == stock_codes[j]]
                 if len(s1) < 22 or len(s2) < 22:
                     continue
-                r1 = s1["close"].tail(22).pct_change().dropna()
-                r2 = s2["close"].tail(22).pct_change().dropna()
-                if len(r1) < 15 or len(r2) < 15:
+                r1_raw = s1["close"].tail(22).pct_change()
+                r2_raw = s2["close"].tail(22).pct_change()
+                if r1_raw.count() < 15 or r2_raw.count() < 15:
                     continue
-                # 残差 = 扣掉市场beta
-                m = mkt_ret.iloc[-len(r1):] if len(mkt_ret) >= len(r1) else mkt_ret
+                # 对齐日期：取三组收益率的日期交集
+                common = r1_raw.dropna().index.intersection(r2_raw.dropna().index).intersection(mkt_ret.index)
+                if len(common) < 15:
+                    continue
+                r1 = r1_raw[common]
+                r2 = r2_raw[common]
+                m = mkt_ret[common]
                 beta1 = np.cov(r1, m)[0, 1] / np.var(m) if np.var(m) > 0 else 1
                 beta2 = np.cov(r2, m)[0, 1] / np.var(m) if np.var(m) > 0 else 1
                 resid1 = r1 - beta1 * m
