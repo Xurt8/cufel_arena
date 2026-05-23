@@ -212,11 +212,20 @@ def fetch_date_range():
     return pd.to_datetime(df["mi"].iloc[0]).date(), pd.to_datetime(df["ma"].iloc[0]).date()
 
 # ── Agent 初始化 ───────────────────────────────────────
-def compute_stoploss(code, cost):
+TRAIL_PROFIT = {
+    "扩张期": 0.40,
+    "复苏期": 0.30,
+    "滞胀期": 0.20,
+    "衰退期": 0.15,
+}
+
+def compute_stoploss(code, cost, cycle_phase=None):
     from src.data.local_store import get_bars
     bars = get_bars([code], days=120)
     if code not in bars or bars[code] is None or len(bars[code]) < 10:
-        return {'stop_price': round(cost * 0.92, 3), 'peak': cost, 'threshold_pct': 8}
+        tp = TRAIL_PROFIT.get(cycle_phase, 0.30) if cycle_phase else 0.30
+        return {'stop_price': round(cost * 0.92, 3), 'peak': cost, 'threshold_pct': 8,
+                'trail_profit_pct': round(tp * 100, 1), 'trail_profit_price': round(cost * (1 - tp), 3)}
     df = bars[code]; closes = df['close'].values
     rets = np.diff(np.log(closes[closes > 0]))
     ann_vol = float(np.std(rets) * np.sqrt(252)) if len(rets) > 5 else 0.3
@@ -229,7 +238,11 @@ def compute_stoploss(code, cost):
     peak = float(max(continuous)) if continuous else float(closes[-1])
     if cost > 0 and cost > peak: peak = cost
     stop_price = round(peak * (1 - threshold_pct / 100), 3)
-    return {'stop_price': stop_price, 'peak': round(peak, 3), 'threshold_pct': threshold_pct}
+    # 全周期 trailing profit
+    tp = TRAIL_PROFIT.get(cycle_phase, 0.30) if cycle_phase else 0.30
+    tp_price = round(peak * (1 - tp), 3)
+    return {'stop_price': stop_price, 'peak': round(peak, 3), 'threshold_pct': threshold_pct,
+            'trail_profit_pct': round(tp * 100, 1), 'trail_profit_price': tp_price}
 
 @st.cache_data(ttl=86400)
 def build_dynamic_universe() -> dict:
@@ -1220,16 +1233,27 @@ with tab_signal:
     # 导出 QMT
     actual_df = st.session_state.get("holdings_df")
     if strategy_holdings and actual_df is not None and len(actual_df) > 0:
+        # 获取当前周期（用于止盈阈值）
+        signal_cycle = "N/A"
+        try:
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+            macro_data = agent.data_agent.get_macro_for_decision(date_obj)
+            analysis = agent.macro_agent.analyze(macro_data)
+            signal_cycle = analysis.get("cycle_phase", "N/A")
+        except Exception:
+            pass
         try:
             qmt_dir = r"D:\长城策略交易系统\python"
             os.makedirs(qmt_dir, exist_ok=True)
             stops_export = []
             for _, row in actual_df.iterrows():
                 code = str(row["代码"]); cost = float(row["成本价"])
-                sl = compute_stoploss(code, cost)
+                sl = compute_stoploss(code, cost, cycle_phase=signal_cycle)
                 stops_export.append({"code": code, "name": ETF_NAMES.get(code, row.get("名称", code)),
                     "cost": cost, "stop_price": sl["stop_price"], "peak": sl["peak"],
-                    "qty": int(float(row["数量"])), "threshold_pct": sl.get("threshold_pct", 8)})
+                    "qty": int(float(row["数量"])), "threshold_pct": sl.get("threshold_pct", 8),
+                    "trail_profit_pct": sl.get("trail_profit_pct", 30),
+                    "trail_profit_price": sl.get("trail_profit_price", round(cost * 0.70, 3))})
             export_data = {"date": date_str, "cycle_id": datetime.now().strftime("%Y%m"),
                            "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                            "target_weights": {c2: round(w2, 4) for c2, w2 in strategy_holdings.items()},

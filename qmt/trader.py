@@ -1,9 +1,9 @@
 #coding:gbk
 """
-QMT Í³Ò»½»Ò×½Å±¾£ºÖ¹Ëð¼à¿Ø + ÔÂ¶Èµ÷²Ö T+2
+QMT Í³Ò»ï¿½ï¿½ï¿½×½Å±ï¿½ï¿½ï¿½Ö¹ï¿½ï¿½ï¿½ï¿½ + ï¿½Â¶Èµï¿½ï¿½ï¿½ T+2
 ============================================
-µ¥Ò»½ø³Ì£ºÏÈ²é³Ö²Ö ¡ú ¼ì²éÖ¹Ëð ¡ú Ö´ÐÐµ÷²Ö
-handlebar Ã¿ ~5s ´¥·¢£¨Ä¬ÈÏÆ·ÖÖ=SH000300£¬ÖÜÆÚ=1·ÖÖÓ£©
+ï¿½ï¿½Ò»ï¿½ï¿½ï¿½Ì£ï¿½ï¿½È²ï¿½Ö²ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½Ö¹ï¿½ï¿½ ï¿½ï¿½ Ö´ï¿½Ðµï¿½ï¿½ï¿½
+handlebar Ã¿ ~5s ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¬ï¿½ï¿½Æ·ï¿½ï¿½=SH000300ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½=1ï¿½ï¿½ï¿½Ó£ï¿½
 """
 import json, os
 from datetime import datetime
@@ -13,46 +13,46 @@ BATCH_FILE = "_batch_state.json"
 BATCH_RATIOS = [0.5, 0.3, 0.2]
 FIRST_CHECK_TIME = "09:31"
 LAST_CHECK_TIME = "14:57"
-REBALANCE_TIME = "09:45"  # µ÷²ÖÑÓ³Ùµ½¿ªÅÌ45·ÖÖÓºó£¬±Ü¿ª¿ªÅÌ¾çÁÒ²¨¶¯
+REBALANCE_TIME = "09:45"  # ï¿½ï¿½ï¿½ï¿½ï¿½Ó³Ùµï¿½ï¿½ï¿½ï¿½ï¿½45ï¿½ï¿½ï¿½Óºó£¬±Ü¿ï¿½ï¿½ï¿½ï¿½Ì¾ï¿½ï¿½Ò²ï¿½ï¿½ï¿½
 
 class G:
-    stops = {}              # {code: {peak, threshold_pct, qty, name, cost}}
-    sold_codes = set()      # ÒÑ´¥·¢Ö¹ËðµÄ´úÂë
+    stops = {}              # {code: {peak, threshold_pct, trail_profit_pct, qty, name, cost}}
+    sold_codes = set()      # ï¿½Ñ´ï¿½ï¿½ï¿½Ö¹ï¿½ï¿½Ä´ï¿½ï¿½ï¿½
     last_minute = ""
-    batch_day = 0           # µ±ÌìÅú´Î: 1=D1(ÖÜÒ») 2=D2(ÖÜÈý) 3=D3(ÖÜÎå) 0=·Ç½»Ò×ÈÕ
-    holdings = {}            # Êµ¼Ê³Ö²Ö {qmt_code: ¿ÉÓÃ¹ÉÊý}
-    orders = None            # µ÷²ÖÖ¸Áî JSON
-    rebalance_done_date = "" # µ±Ììµ÷²ÖÊÇ·ñÒÑÖ´ÐÐ£¨ÈÕÆÚ×Ö·û´®£©
-    rebalance_phase = ""     # "" | "submitted" | "verified" ¡ª ÑéÖ¤×´Ì¬»ú
+    batch_day = 0           # ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½: 1=D1(ï¿½ï¿½Ò») 2=D2(ï¿½ï¿½ï¿½ï¿½) 3=D3(ï¿½ï¿½ï¿½ï¿½) 0=ï¿½Ç½ï¿½ï¿½ï¿½ï¿½ï¿½
+    holdings = {}            # Êµï¿½Ê³Ö²ï¿½ {qmt_code: ï¿½ï¿½ï¿½Ã¹ï¿½ï¿½ï¿½}
+    orders = None            # ï¿½ï¿½ï¿½ï¿½Ö¸ï¿½ï¿½ JSON
+    rebalance_done_date = "" # ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½Ö´ï¿½Ð£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö·ï¿½ï¿½ï¿½ï¿½ï¿½
+    rebalance_phase = ""     # "" | "submitted" | "verified" ï¿½ï¿½ ï¿½ï¿½Ö¤×´Ì¬ï¿½ï¿½
     expected_holdings = {}   # {code: target_shares}
-    pending_orders = {}      # ´ýÈ·ÈÏÎ¯ÍÐ {remark: time}  ·ÀÖØ¸´ÏÂµ¥ ¡ª µ±ÌìÄ¿±êÓÃÓÚÑéÖ¤
-    d1_date = ""            # ±¾ÔÂD1ÈÕÆÚ£¨µÚÒ»ÖÜÖÜÒ»£©
-    d2_date = ""            # ±¾ÔÂD2ÈÕÆÚ£¨µÚÒ»ÖÜÖÜÈý£©
-    d3_date = ""            # ±¾ÔÂD3ÈÕÆÚ£¨µÚÒ»ÖÜÖÜÎå£©
-    deals = []               # ³É½»¼ÇÂ¼ [{time, code, direction, volume, price, amount, order_id}]
-    orders_log = []          # Î¯ÍÐ¼ÇÂ¼ [{time, code, direction, volume, filled, price, status, order_id}]
+    pending_orders = {}      # ï¿½ï¿½È·ï¿½ï¿½Î¯ï¿½ï¿½ {remark: time}  ï¿½ï¿½ï¿½Ø¸ï¿½ï¿½Âµï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¤
+    d1_date = ""            # ï¿½ï¿½ï¿½ï¿½D1ï¿½ï¿½ï¿½Ú£ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½
+    d2_date = ""            # ï¿½ï¿½ï¿½ï¿½D2ï¿½ï¿½ï¿½Ú£ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+    d3_date = ""            # ï¿½ï¿½ï¿½ï¿½D3ï¿½ï¿½ï¿½Ú£ï¿½ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½å£©
+    deals = []               # ï¿½É½ï¿½ï¿½ï¿½Â¼ [{time, code, direction, volume, price, amount, order_id}]
+    orders_log = []          # Î¯ï¿½Ð¼ï¿½Â¼ [{time, code, direction, volume, filled, price, status, order_id}]
 g = G()
 
 def get_script_dir():
     try: return os.path.dirname(os.path.abspath(__file__))
     except: pass
-    for d in [r"D:\³¤³Ç²ßÂÔ½»Ò×ÏµÍ³\python", os.getcwd()]:
+    for d in [r"D:\ï¿½ï¿½ï¿½Ç²ï¿½ï¿½Ô½ï¿½ï¿½ï¿½ÏµÍ³\python", os.getcwd()]:
         if os.path.isdir(d): return d
     return os.getcwd()
 
 def load_orders_file():
-    # Ö»¶ÁÕâÒ»·Ý£¬²»É¨Ãè²»²Â²â
-    path = r"D:\³¤³Ç²ßÂÔ½»Ò×ÏµÍ³\python\qmt_orders_latest.json"
+    # Ö»ï¿½ï¿½ï¿½ï¿½Ò»ï¿½Ý£ï¿½ï¿½ï¿½É¨ï¿½è²»ï¿½Â²ï¿½
+    path = r"D:\ï¿½ï¿½ï¿½Ç²ï¿½ï¿½Ô½ï¿½ï¿½ï¿½ÏµÍ³\python\qmt_orders_latest.json"
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f: return json.load(f)
-    print(f"[ERROR] Î´ÕÒµ½Ö¸ÁîÎÄ¼þ: {path}")
+    print(f"[ERROR] Î´ï¿½Òµï¿½Ö¸ï¿½ï¿½ï¿½Ä¼ï¿½: {path}")
     return None
 
 def code_to_qmt(code):
     return f"{code}.SH" if code.startswith(("5","6","51","56","58","59")) else f"{code}.SZ"
 
 def get_month_trade_dates(C, y, m):
-    """ÓÃÕæÊµ½»Ò×ÈÕ¼ÆËã: D1=µÚ1¸ö½»Ò×ÈÕ, D2=µÚ3¸ö, D3=µÚ5¸ö£¨×Ô¶¯Ìø¹ý½Ú¼ÙÈÕ£©"""
+    """ï¿½ï¿½ï¿½ï¿½Êµï¿½ï¿½ï¿½ï¿½ï¿½Õ¼ï¿½ï¿½ï¿½: D1=ï¿½ï¿½1ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, D2=ï¿½ï¿½3ï¿½ï¿½, D3=ï¿½ï¿½5ï¿½ï¿½ï¿½ï¿½ï¿½Ô¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú¼ï¿½ï¿½Õ£ï¿½"""
     start = "%04d%02d01" % (y, m)
     if m == 12:
         end = "%04d0101" % (y + 1)
@@ -67,7 +67,7 @@ def get_month_trade_dates(C, y, m):
             return d1, d2, d3
     except:
         pass
-    # »ØÍË: ×ÔÈ»ÈÕ¼ÆËã
+    # ï¿½ï¿½ï¿½ï¿½: ï¿½ï¿½È»ï¿½Õ¼ï¿½ï¿½ï¿½
     def first_weekday(w):
         for d in range(1, 8):
             if __import__('datetime').datetime(y, m, d).weekday() == w:
@@ -80,7 +80,7 @@ def get_month_trade_dates(C, y, m):
     d3 = d1 + __import__('datetime').timedelta(days=4)
     return d1.strftime("%Y-%m-%d"), d2.strftime("%Y-%m-%d"), d3.strftime("%Y-%m-%d")
 def query_holdings():
-    """²éÑ¯Êµ¼Ê³Ö²Ö"""
+    """ï¿½ï¿½Ñ¯Êµï¿½Ê³Ö²ï¿½"""
     try:
         rows = get_trade_detail_data(account, "stock", "position")
         if not rows: return {}
@@ -89,22 +89,22 @@ def query_holdings():
     except:
         return {}
 
-# ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-#  µ÷²ÖÓÃ order_* ÏµÁÐ£¨×Ô¶¯Ëã¼Û¸ñ¡¢·½Ïò¡¢È¡Õû£©
-#  Ö¹ËðÓÃ passorder£¨ÐèÒª quickTrade=2 Á¢¼´Ö´ÐÐ£©
-# ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+# ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
+#  ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ order_* Ïµï¿½Ð£ï¿½ï¿½Ô¶ï¿½ï¿½ï¿½Û¸ñ¡¢·ï¿½ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½
+#  Ö¹ï¿½ï¿½ï¿½ï¿½ passorderï¿½ï¿½ï¿½ï¿½Òª quickTrade=2 ï¿½ï¿½ï¿½ï¿½Ö´ï¿½Ð£ï¿½
+# ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
 
 def do_sell(C, qmt_code, qty, label):
-    """Âô³ö qty ¹É¡£GWT order_shares ×Ô¶¯È¡¶ÔÊÖ¼Û¡¢ÕûÊÖ"""
+    """ï¿½ï¿½ï¿½ï¿½ qty ï¿½É¡ï¿½GWT order_shares ï¿½Ô¶ï¿½È¡ï¿½ï¿½ï¿½Ö¼Û¡ï¿½ï¿½ï¿½ï¿½ï¿½"""
     avail = g.holdings.get(qmt_code, 0)
     if avail <= 0:
         g.holdings = query_holdings()
         avail = g.holdings.get(qmt_code, 0)
         if avail <= 0:
-            print(f"  [SKIP] {qmt_code} ÎÞ³Ö²Ö")
+            print(f"  [SKIP] {qmt_code} ï¿½Þ³Ö²ï¿½")
             return
     if qty > avail:
-        print(f"  [ADJ] {qmt_code} Ö¸Áî{qty}¹É¡ú{avail}¹É")
+        print(f"  [ADJ] {qmt_code} Ö¸ï¿½ï¿½{qty}ï¿½É¡ï¿½{avail}ï¿½ï¿½")
         qty = avail
     qty = int(qty / 100) * 100
     if qty <= 0: return
@@ -116,12 +116,12 @@ def do_sell(C, qmt_code, qty, label):
     price = round(price, 3)
     if EXECUTE_REAL:
         passorder(24, 1101, account, qmt_code, 11, price, qty, label, 2, '', C)
-        print(f"  [DONE] Âô {qmt_code} x{qty} @{price:.3f}")
+        print(f"  [DONE] ï¿½ï¿½ {qmt_code} x{qty} @{price:.3f}")
     else:
-        print(f"  [SIM]  Âô {qmt_code} x{qty}")
+        print(f"  [SIM]  ï¿½ï¿½ {qmt_code} x{qty}")
 
 def do_buy(C, qmt_code, amount_yuan, label):
-    """ÂòÈë amount_yuan Ôª¡£ÓÃ passorder(1101) ÊÖ¹¤Ëã¹ÉÊý¡ª¡ªorder_value ÊµÅÌ²»ÉúÐ§"""
+    """ï¿½ï¿½ï¿½ï¿½ amount_yuan Ôªï¿½ï¿½ï¿½ï¿½ passorder(1101) ï¿½Ö¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½order_value Êµï¿½Ì²ï¿½ï¿½ï¿½Ð§"""
     tick = C.get_full_tick([qmt_code])
     if not tick or qmt_code not in tick: return
     t = tick[qmt_code]
@@ -130,17 +130,17 @@ def do_buy(C, qmt_code, amount_yuan, label):
     price = round(price, 3)
     shares = int(amount_yuan / price / 100) * 100
     if shares < 100:
-        print(f"  [SKIP] {qmt_code} {amount_yuan}Ôª ²»×ã1ÊÖ(@{price:.3f})")
+        print(f"  [SKIP] {qmt_code} {amount_yuan}Ôª ï¿½ï¿½ï¿½ï¿½1ï¿½ï¿½(@{price:.3f})")
         return
     if EXECUTE_REAL:
         passorder(23, 1101, account, qmt_code, 11, price, shares, label, 2, '', C)
-        print(f"  [DONE] Âò {qmt_code} x{shares} @{price:.3f}")
+        print(f"  [DONE] ï¿½ï¿½ {qmt_code} x{shares} @{price:.3f}")
     else:
-        print(f"  [SIM]  Âò {qmt_code} x{shares} @{price:.3f}")
+        print(f"  [SIM]  ï¿½ï¿½ {qmt_code} x{shares} @{price:.3f}")
 
-# ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+# ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
 def run_stoploss(C):
-    """¼ì²éÖ¹ËðÌõ¼þ£¬´¥·¢ÔòÏÂµ¥Âô³ö"""
+    """ï¿½ï¿½ï¿½Ö¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Âµï¿½ï¿½ï¿½ï¿½ï¿½"""
     now = datetime.now()
     time_str = now.strftime("%H:%M")
     if time_str < FIRST_CHECK_TIME or time_str > LAST_CHECK_TIME: return
@@ -161,28 +161,33 @@ def run_stoploss(C):
             if oi not in (0, 10, 13, 14, 15): continue
             peak = max(info["peak"], t.get("high", current))
             threshold = info.get("threshold_pct", 8)
+            trail_tp = info.get("trail_profit_pct", 30)
             drawdown = (current - peak) / peak * 100
-            if drawdown <= -threshold:
-                print(f"\n[STOP] {time_str} {code} {info.get('name',code)}")
-                print(f"  ÏÖ¼Û={current:.3f} »Ø³·={drawdown:.1f}% ãÐÖµ={threshold:.0f}%")
+            triggered = drawdown <= -threshold
+            tp_triggered = drawdown <= -trail_tp
+            reason = "stop" if triggered else ("trail_profit" if tp_triggered else None)
+            if reason:
+                label = "STOP" if reason == "stop" else "TPROFIT"
+                print(f"\n[{label}] {time_str} {code} {info.get('name',code)}")
+                print(f"  price={current:.3f} dd={drawdown:.1f}% limit={threshold:.0f}% tp={trail_tp:.0f}%")
                 bid = t.get("bidPrice", [current])[0] if t.get("bidPrice") else current
                 order_price = round(bid, 3)
                 try:
-                    passorder(24, 1101, account, qmt_code, 11, order_price, info['qty'], 'Ö¹Ëð', 2, '', C)
+                    passorder(24, 1101, account, qmt_code, 11, order_price, info['qty'], 'Ö¹ï¿½ï¿½', 2, '', C)
                     print(f"  [DONE] {qmt_code} x{info['qty']} @{order_price:.3f}")
                     g.sold_codes.add(code)
-                    g.holdings.pop(qmt_code, None)  # ´Ó³Ö²Ö»º´æÒÆ³ý
+                    g.holdings.pop(qmt_code, None)  # ï¿½Ó³Ö²Ö»ï¿½ï¿½ï¿½ï¿½Æ³ï¿½
                 except Exception as e:
                     print(f"  [FAIL] {qmt_code}: {e}")
         except Exception as e:
-            pass  # ¾²Ä¬Ìø¹ýµ¥Ö»´íÎó
+            pass  # ï¿½ï¿½Ä¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö»ï¿½ï¿½ï¿½ï¿½
 
     active = len(g.stops) - len(g.sold_codes)
     if now.minute % 5 == 0:
-        print(f"[{time_str}] ¼à¿Ø{active}Ö» | ÒÑ´¥·¢{len(g.sold_codes)}Ö»")
+        print(f"[{time_str}] ï¿½ï¿½ï¿½{active}Ö» | ï¿½Ñ´ï¿½ï¿½ï¿½{len(g.sold_codes)}Ö»")
 
 def run_rebalance(C):
-    """Ö´ÐÐÔÂ¶Èµ÷²Ö¡ª¡ªD1Îå²½£º¼ÆËãÄ¿±ê¡ú²é³Ö²Ö¡úÂô³ö¡úÂòÈë¡úÑéÖ¤"""
+    """Ö´ï¿½ï¿½ï¿½Â¶Èµï¿½ï¿½Ö¡ï¿½ï¿½ï¿½D1ï¿½å²½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ï¿½ï¿½ï¿½Ö²Ö¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¤"""
     if g.batch_day == 0: return
     if not g.orders: return
 
@@ -192,7 +197,7 @@ def run_rebalance(C):
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
 
-    # ©¤©¤ ÖØÆô±£»¤£º¼ì²é batch_state ÖÐÊÇ·ñÒÑÍê³É½ñÈÕµ÷²Ö ©¤©¤
+    # ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ batch_state ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ï¿½É½ï¿½ï¿½Õµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     d = get_script_dir()
     batch_path = os.path.join(d, BATCH_FILE)
     batch_state = {}
@@ -202,34 +207,34 @@ def run_rebalance(C):
                 batch_state = json.load(f)
         except: pass
     if batch_state.get("rebalance_done_date") == today:
-        print(f"  [SKIP] ½ñÈÕµ÷²ÖÒÑÍê³É({today})£¬Ìø¹ý")
+        print(f"  [SKIP] ï¿½ï¿½ï¿½Õµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½({today})ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½")
         g.batch_day = 0
         g.rebalance_phase = "verified"
         return
 
-    # ©¤©¤ ÑéÖ¤½×¶Î£¨µÚ¶þ´Î handlebar ´¥·¢£©©¤©¤
+    # ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ö¤ï¿½×¶Î£ï¿½ï¿½Ú¶ï¿½ï¿½ï¿½ handlebar ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     if g.rebalance_phase == "submitted":
         _verify_rebalance(C, target_weights, today, batch_path, batch_state)
         return
 
     if g.rebalance_phase == "verified" and g.rebalance_done_date == today:
-        return  # ½ñÈÕÒÑÍê³É£¬²»ÔÙÖ´ÐÐ
+        return  # ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É£ï¿½ï¿½ï¿½ï¿½ï¿½Ö´ï¿½ï¿½
 
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-    # Ê×´ÎÖ´ÐÐ£ºStep 1-4
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
+    # ï¿½×´ï¿½Ö´ï¿½Ð£ï¿½Step 1-4
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
 
-    # Ë¢ÐÂ³Ö²Ö
+    # Ë¢ï¿½Â³Ö²ï¿½
     g.holdings = query_holdings()
 
-    # ©¤©¤ »ñÈ¡ÐÐÇé ©¤©¤
+    # ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     all_codes = list(g.holdings.keys()) + [code_to_qmt(c) for c in target_weights]
     all_tick = {}
     for qc in all_codes:
         bt = C.get_full_tick([qc])
         if bt and qc in bt: all_tick[qc] = bt[qc]
 
-    # ©¤©¤ »ñÈ¡ÕË»§ÕæÊµ×Ü×Ê²ú ©¤©¤
+    # ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¡ï¿½Ë»ï¿½ï¿½ï¿½Êµï¿½ï¿½ï¿½Ê²ï¿½ ï¿½ï¿½ï¿½ï¿½
     total_value = 0.0
     try:
         acct_rows = get_trade_detail_data(g.acct, g.acct_type, 'account')
@@ -242,82 +247,82 @@ def run_rebalance(C):
         if p > 0: total_value += vol * p
     if total_value <= 0:
         total_value = 100000
-        print(f"  [¹ÀÖµ] ·Ç½»Ò×Ê±¶Î£¬ÓÃ¹Ì¶¨×Ü×Ê²ú{total_value/10000:.0f}Íò")
+        print(f"  [ï¿½ï¿½Öµ] ï¿½Ç½ï¿½ï¿½ï¿½Ê±ï¿½Î£ï¿½ï¿½Ã¹Ì¶ï¿½ï¿½ï¿½ï¿½Ê²ï¿½{total_value/10000:.0f}ï¿½ï¿½")
 
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-    # Step 1: µ±ÌìÄ¿±ê + ×îÖÕÄ¿±ê£¨D3=100%£©³Ö²ÖÊýÁ¿
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
+    # Step 1: ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ + ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ê£¨D3=100%ï¿½ï¿½ï¿½Ö²ï¿½ï¿½ï¿½ï¿½ï¿½
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
     cum_ratio = sum(BATCH_RATIOS[:g.batch_day])
     print(f"\n{'='*50}")
-    print(f"  D{g.batch_day} µ÷²Ö | ×Ü×Ê²ú¡Ö{total_value/10000:.1f}Íò | Ä¿±ê{cum_ratio*100:.0f}%")
+    print(f"  D{g.batch_day} ï¿½ï¿½ï¿½ï¿½ | ï¿½ï¿½ï¿½Ê²ï¿½ï¿½ï¿½{total_value/10000:.1f}ï¿½ï¿½ | Ä¿ï¿½ï¿½{cum_ratio*100:.0f}%")
     print(f"{'='*50}")
-    print(f"\n  [Step1] µ±ÌìÄ¿±ê (ÀÛ¼Æ{cum_ratio*100:.0f}%) / ×îÖÕÄ¿±ê (100%):")
+    print(f"\n  [Step1] ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ (ï¿½Û¼ï¿½{cum_ratio*100:.0f}%) / ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ (100%):")
     target_quantities = {}
-    final_quantities = {}  # D3=100%Ä¿±ê£¬ÓÃÓÚÅÐ¶ÏÊÇ·ñÕæÕý³¬Åä
+    final_quantities = {}  # D3=100%Ä¿ï¿½ê£¬ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     for code, target_w in target_weights.items():
         qmt_code = code_to_qmt(code)
         t = all_tick.get(qmt_code, {})
         price = t.get("lastPrice", 0) if t else 0
         if price <= 0:
-            print(f"    {code}: ÎÞÊµÊ±¼Û£¬Ìø¹ý")
+            print(f"    {code}: ï¿½ï¿½ÊµÊ±ï¿½Û£ï¿½ï¿½ï¿½ï¿½ï¿½")
             continue
-        # µ±ÌìÄ¿±ê
+        # ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½
         target_mv = total_value * target_w * cum_ratio
         target_shares = int(target_mv / price / 100) * 100
         if target_shares >= 100:
             target_quantities[code] = target_shares
         else:
             target_shares = 0
-        # ×îÖÕÄ¿±ê£¨100%£©
+        # ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ê£¨100%ï¿½ï¿½
         final_mv = total_value * target_w * 1.0
         final_shares = int(final_mv / price / 100) * 100
         final_quantities[code] = final_shares
-        print(f"    {code}: µ±Ìì{target_shares}¹É / ×îÖÕ{final_shares}¹É ({target_mv/10000:.2f}Íò @{price:.3f})")
+        print(f"    {code}: ï¿½ï¿½ï¿½ï¿½{target_shares}ï¿½ï¿½ / ï¿½ï¿½ï¿½ï¿½{final_shares}ï¿½ï¿½ ({target_mv/10000:.2f}ï¿½ï¿½ @{price:.3f})")
 
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-    # Step 2: ¼ì²éµ±Ç°³Ö²Ö
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-    print(f"\n  [Step2] µ±Ç°³Ö²Ö:")
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
+    # Step 2: ï¿½ï¿½éµ±Ç°ï¿½Ö²ï¿½
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
+    print(f"\n  [Step2] ï¿½ï¿½Ç°ï¿½Ö²ï¿½:")
     if g.holdings:
         for qc, vol in g.holdings.items():
             code = qc.split(".")[0]
-            tag = "Ä¿±êÄÚ" if code in target_weights else "ÐèÇå²Ö"
-            print(f"    {code}: {vol}¹É ({tag})")
+            tag = "Ä¿ï¿½ï¿½ï¿½ï¿½" if code in target_weights else "ï¿½ï¿½ï¿½ï¿½ï¿½"
+            print(f"    {code}: {vol}ï¿½ï¿½ ({tag})")
     else:
-        print(f"    (¿Õ²Ö)")
+        print(f"    (ï¿½Õ²ï¿½)")
 
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-    # Step 3: Âô³ö£¨·ÇÄ¿±êÇå²Ö + Ä¿±ê³¬Åä¼õ³Ö£¬ÒÔ×îÖÕÄ¿±ê=100%Îª»ù×¼£©
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
+    # Step 3: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ï¿½ï¿½ï¿½ + Ä¿ï¿½ê³¬ï¿½ï¿½ï¿½ï¿½Ö£ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½=100%Îªï¿½ï¿½×¼ï¿½ï¿½
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
     sell_list = []
     for qc, vol in g.holdings.items():
         code = qc.split(".")[0]
         if code not in target_weights:
-            # ·ÇÄ¿±ê£ºÈ«²¿Çå²Ö
+            # ï¿½ï¿½Ä¿ï¿½ê£ºÈ«ï¿½ï¿½ï¿½ï¿½ï¿½
             v = int(vol / 100) * 100
             if v >= 100:
-                sell_list.append((qc, code, v, "Çå²Ö"))
+                sell_list.append((qc, code, v, "ï¿½ï¿½ï¿½"))
         elif code in final_quantities:
-            # Ä¿±êETF£º³¬³ö×îÖÕÄ¿±ê(100%)µÄ²¿·Ö²ÅÂô³ö
+            # Ä¿ï¿½ï¿½ETFï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½(100%)ï¿½Ä²ï¿½ï¿½Ö²ï¿½ï¿½ï¿½ï¿½ï¿½
             final_v = final_quantities[code]
             if vol > final_v:
                 excess = int((vol - final_v) / 100) * 100
                 if excess >= 100:
-                    sell_list.append((qc, code, excess, f"³¬Åä¼õ³Ö(>{final_v}¹É)"))
+                    sell_list.append((qc, code, excess, f"ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½(>{final_v}ï¿½ï¿½)"))
     if sell_list:
-        print(f"\n  [Step3] Âô³ö ({len(sell_list)}±Ê):")
+        print(f"\n  [Step3] ï¿½ï¿½ï¿½ï¿½ ({len(sell_list)}ï¿½ï¿½):")
         for qc, code, vol, reason in sell_list:
             try:
-                passorder(24, 1101, account, qc, 0, 0, vol, "ÔÂ¶Èµ÷²Ö", 2, '', C)
-                print(f"    [DONE] Âô {qc} x{vol} ({reason})")
+                passorder(24, 1101, account, qc, 0, 0, vol, "ï¿½Â¶Èµï¿½ï¿½ï¿½", 2, '', C)
+                print(f"    [DONE] ï¿½ï¿½ {qc} x{vol} ({reason})")
             except Exception as e:
-                print(f"    [FAIL] Âô {qc} x{vol}: {e}")
+                print(f"    [FAIL] ï¿½ï¿½ {qc} x{vol}: {e}")
     else:
-        print(f"\n  [Step3] ÎÞÐèÂô³ö")
+        print(f"\n  [Step3] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½")
 
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
-    # Step 4: ¶Ô±È¡úÂòÈë£¨²î¶î = µ±ÌìÄ¿±ê - µ±Ç°³Ö²Ö£©
-    # ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
+    # Step 4: ï¿½Ô±È¡ï¿½ï¿½ï¿½ï¿½ë£¨ï¿½ï¿½ï¿½ = ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ - ï¿½ï¿½Ç°ï¿½Ö²Ö£ï¿½
+    # ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
     buy_list = []
     for code, target_shares in target_quantities.items():
         qmt_code = code_to_qmt(code)
@@ -330,72 +335,72 @@ def run_rebalance(C):
             price = round(price, 3)
             buy_list.append((qmt_code, code, delta, price))
         elif delta > 0:
-            print(f"  [Step4] {code} ²î¶î{delta}¹É²»×ã1ÊÖ£¬Ìø¹ý")
+            print(f"  [Step4] {code} ï¿½ï¿½ï¿½{delta}ï¿½É²ï¿½ï¿½ï¿½1ï¿½Ö£ï¿½ï¿½ï¿½ï¿½ï¿½")
 
     if buy_list:
-        print(f"\n  [Step4] ÂòÈëÄ¿±êETF ({len(buy_list)}±Ê):")
+        print(f"\n  [Step4] ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ETF ({len(buy_list)}ï¿½ï¿½):")
         for qmt_code, code, delta, price in buy_list:
             try:
-                passorder(23, 1101, account, qmt_code, 11, price, delta, "ÔÂ¶Èµ÷²Ö", 2, '', C)
-                print(f"    [DONE] Âò {qmt_code} x{delta} @{price:.3f}")
+                passorder(23, 1101, account, qmt_code, 11, price, delta, "ï¿½Â¶Èµï¿½ï¿½ï¿½", 2, '', C)
+                print(f"    [DONE] ï¿½ï¿½ {qmt_code} x{delta} @{price:.3f}")
             except Exception as e:
-                print(f"    [FAIL] Âò {qmt_code} x{delta}: {e}")
+                print(f"    [FAIL] ï¿½ï¿½ {qmt_code} x{delta}: {e}")
     else:
-        print(f"\n  [Step4] ÎÞÐèÂòÈë")
+        print(f"\n  [Step4] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½")
 
-    # ©¤©¤ Ã¿Ìì½øÈëÑéÖ¤µÈ´ý ©¤©¤
+    # ï¿½ï¿½ï¿½ï¿½ Ã¿ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¤ï¿½È´ï¿½ ï¿½ï¿½ï¿½ï¿½
     g.expected_holdings = target_quantities
     g.rebalance_phase = "submitted"
-    print(f"\n  ¡ú Î¯ÍÐÒÑÌá½»£¬µÈ´ýÏÂ´ÎbarÖ´ÐÐStep5ÑéÖ¤...")
+    print(f"\n  ï¿½ï¿½ Î¯ï¿½ï¿½ï¿½ï¿½ï¿½á½»ï¿½ï¿½ï¿½È´ï¿½ï¿½Â´ï¿½barÖ´ï¿½ï¿½Step5ï¿½ï¿½Ö¤...")
 
 
 def _verify_rebalance(C, target_weights, today, batch_path, batch_state):
-    """Step 5: ÑéÖ¤µ÷²Ö½á¹û£¬³Ö¾Ã»¯Íê³É×´Ì¬"""
+    """Step 5: ï¿½ï¿½Ö¤ï¿½ï¿½ï¿½Ö½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¾Ã»ï¿½ï¿½ï¿½ï¿½×´Ì¬"""
     g.holdings = query_holdings()
 
     print(f"\n{'='*50}")
-    print(f"  [Step5] µ÷²Öºó³Ö²ÖÑéÖ¤")
+    print(f"  [Step5] ï¿½ï¿½ï¿½Öºï¿½Ö²ï¿½ï¿½ï¿½Ö¤")
     print(f"{'='*50}")
 
     all_ok = True
     discrepancies = []
 
-    # ¼ì²éÄ¿±êETFÊÇ·ñµ½Î»
+    # ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ETFï¿½Ç·ï¿½Î»
     for code, expected in g.expected_holdings.items():
         qmt_code = code_to_qmt(code)
         actual = g.holdings.get(qmt_code, 0)
         diff = expected - actual
         if diff > 0:
             all_ok = False
-            msg = f"È±{code}: Ó¦ÓÐ{expected}¹É ÊµÓÐ{actual}¹É È±{diff}¹É"
+            msg = f"È±{code}: Ó¦ï¿½ï¿½{expected}ï¿½ï¿½ Êµï¿½ï¿½{actual}ï¿½ï¿½ È±{diff}ï¿½ï¿½"
             discrepancies.append(msg)
             print(f"  [È±] {msg}")
         elif diff < 0:
             all_ok = False
-            msg = f"¶à{code}: Ó¦ÓÐ{expected}¹É ÊµÓÐ{actual}¹É ¶à{-diff}¹É"
+            msg = f"ï¿½ï¿½{code}: Ó¦ï¿½ï¿½{expected}ï¿½ï¿½ Êµï¿½ï¿½{actual}ï¿½ï¿½ ï¿½ï¿½{-diff}ï¿½ï¿½"
             discrepancies.append(msg)
-            print(f"  [¶à] {msg}")
+            print(f"  [ï¿½ï¿½] {msg}")
         else:
-            print(f"  [OK] {code}: {actual}¹É OK")
+            print(f"  [OK] {code}: {actual}ï¿½ï¿½ OK")
 
-    # ¼ì²é·ÇÄ¿±êÊÇ·ñÒÑÇå²Ö
+    # ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     for qc, vol in g.holdings.items():
         code = qc.split(".")[0]
         if code not in target_weights and vol > 0:
             all_ok = False
-            msg = f"²ÐÁô{code}: Ó¦Çå²Öµ«ÈÔÓÐ{vol}¹É"
+            msg = f"ï¿½ï¿½ï¿½ï¿½{code}: Ó¦ï¿½ï¿½Öµï¿½ï¿½ï¿½ï¿½ï¿½{vol}ï¿½ï¿½"
             discrepancies.append(msg)
-            print(f"  [²ÐÁô] {msg}")
+            print(f"  [ï¿½ï¿½ï¿½ï¿½] {msg}")
 
     if all_ok:
-        print(f"\n  [Íê³É] ³Ö²ÖÓëD{g.batch_day}Ä¿±êÒ»ÖÂ OK")
+        print(f"\n  [ï¿½ï¿½ï¿½] ï¿½Ö²ï¿½ï¿½ï¿½D{g.batch_day}Ä¿ï¿½ï¿½Ò»ï¿½ï¿½ OK")
     else:
-        print(f"\n  [×¢Òâ] ´æÔÚ{len(discrepancies)}Ïî²îÒì:")
+        print(f"\n  [×¢ï¿½ï¿½] ï¿½ï¿½ï¿½ï¿½{len(discrepancies)}ï¿½ï¿½ï¿½ï¿½ï¿½:")
         for d_msg in discrepancies:
             print(f"    - {d_msg}")
-        print(f"  ¿ÉÄÜÔ­Òò: Î¯ÍÐÎ´³É½»/²¿·Ö³É½»/Ìá½»Ê§°Ü")
+        print(f"  ï¿½ï¿½ï¿½ï¿½Ô­ï¿½ï¿½: Î¯ï¿½ï¿½Î´ï¿½É½ï¿½/ï¿½ï¿½ï¿½Ö³É½ï¿½/ï¿½á½»Ê§ï¿½ï¿½")
 
-    # ©¤©¤ ³Ö¾Ã»¯Íê³É×´Ì¬ ©¤©¤
+    # ï¿½ï¿½ï¿½ï¿½ ï¿½Ö¾Ã»ï¿½ï¿½ï¿½ï¿½×´Ì¬ ï¿½ï¿½ï¿½ï¿½
     batch_state["rebalance_done_date"] = today
     batch_state["cycle"] = datetime.now().strftime("%Y%m")
     batch_state["d1_date"] = g.d1_date
@@ -408,35 +413,35 @@ def _verify_rebalance(C, target_weights, today, batch_path, batch_state):
     g.rebalance_phase = "verified"
 
     if g.batch_day >= 3:
-        print(f"\n  T+2 Íê³É ¡ª ±¾ÔÂµ÷²Ö½áÊø")
+        print(f"\n  T+2 ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½Âµï¿½ï¿½Ö½ï¿½ï¿½ï¿½")
     else:
         next_date = [None, g.d2_date, g.d3_date][g.batch_day]
-        print(f"\n  [NEXT] D{g.batch_day+1} ¡ú {next_date} ({BATCH_RATIOS[g.batch_day]*100:.0f}%)")
-    print(f"  [³Ö¾Ã»¯] rebalance_done_date={today} ¡ú ÖØÆô²»ÔÙ½»Ò×\n")
+        print(f"\n  [NEXT] D{g.batch_day+1} ï¿½ï¿½ {next_date} ({BATCH_RATIOS[g.batch_day]*100:.0f}%)")
+    print(f"  [ï¿½Ö¾Ã»ï¿½] rebalance_done_date={today} ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ù½ï¿½ï¿½ï¿½\n")
 
-# ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+# ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½T
 def init(C):
     print(f"\n{'='*55}")
-    print(f"  QMT Í³Ò»½»Ò× | {'ÊµÅÌ' if EXECUTE_REAL else 'Ä£Äâ'}")
+    print(f"  QMT Í³Ò»ï¿½ï¿½ï¿½ï¿½ | {'Êµï¿½ï¿½' if EXECUTE_REAL else 'Ä£ï¿½ï¿½'}")
     print(f"{'='*55}")
 
-    # 1. ²é³Ö²Ö
+    # 1. ï¿½ï¿½Ö²ï¿½
     g.holdings = query_holdings()
     if g.holdings:
-        print(f"  [³Ö²Ö] {len(g.holdings)}Ö»")
+        print(f"  [ï¿½Ö²ï¿½] {len(g.holdings)}Ö»")
         for c, v in g.holdings.items():
-            print(f"    {c}: {v}¹É")
+            print(f"    {c}: {v}ï¿½ï¿½")
     else:
-        print(f"  [³Ö²Ö] ²éÑ¯Ê§°Ü")
+        print(f"  [ï¿½Ö²ï¿½] ï¿½ï¿½Ñ¯Ê§ï¿½ï¿½")
 
-    # µ¼³ö³Ö²Öµ½±¾µØÎÄ¼þ£¬¹© Streamlit ×Ô¶¯¶ÁÈ¡
+    # ï¿½ï¿½ï¿½ï¿½ï¿½Ö²Öµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½ Streamlit ï¿½Ô¶ï¿½ï¿½ï¿½È¡
     if g.holdings:
         try:
             hold_report = {
                 "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "positions": []
             }
-            # »ñÈ¡ÍêÕû³Ö²ÖÐÅÏ¢£¨º¬Ó¯¿÷£©
+            # ï¿½ï¿½È¡ï¿½ï¿½ï¿½ï¿½ï¿½Ö²ï¿½ï¿½ï¿½Ï¢ï¿½ï¿½ï¿½ï¿½Ó¯ï¿½ï¿½ï¿½ï¿½
             pos_rows = get_trade_detail_data(g.acct, g.acct_type, "position")
             pos_map = {}
             if pos_rows:
@@ -465,10 +470,10 @@ def init(C):
             d = get_script_dir()
             with open(os.path.join(d, "qmt_holdings.json"), "w", encoding="utf-8") as f:
                 json.dump(hold_report, f, ensure_ascii=False)
-            print(f"  [µ¼³ö] ³Ö²Ö¡úqmt_holdings.json")
+            print(f"  [ï¿½ï¿½ï¿½ï¿½] ï¿½Ö²Ö¡ï¿½qmt_holdings.json")
         except: pass
 
-    # 2. ¼ÓÔØÖ¸ÁîÎÄ¼þ
+    # 2. ï¿½ï¿½ï¿½ï¿½Ö¸ï¿½ï¿½ï¿½Ä¼ï¿½
     g.sold_codes = set()
     g.orders = load_orders_file()
     if g.orders:
@@ -476,21 +481,21 @@ def init(C):
         stops = g.orders.get("stops", [])
         g.stops = {s["code"]: s for s in stops}
         trades = g.orders.get("trades", {})
-        n_sell = len(trades.get("Ö¹ËðÂô³ö", [])) + len([o for o in trades.get("µ÷²Ö", []) if o.get("·½Ïò") == "Âô"])
-        n_buy = len([o for o in trades.get("µ÷²Ö", []) if o.get("·½Ïò") == "Âò"])
-        print(f"  [Ö¸Áî] {date} | Ö¹ËðÂô{n_sell}±Ê Âò{n_buy}±Ê | ¼à¿Ø{len(g.stops)}Ö»")
+        n_sell = len(trades.get("Ö¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", [])) + len([o for o in trades.get("ï¿½ï¿½ï¿½ï¿½", []) if o.get("ï¿½ï¿½ï¿½ï¿½") == "ï¿½ï¿½"])
+        n_buy = len([o for o in trades.get("ï¿½ï¿½ï¿½ï¿½", []) if o.get("ï¿½ï¿½ï¿½ï¿½") == "ï¿½ï¿½"])
+        print(f"  [Ö¸ï¿½ï¿½] {date} | Ö¹ï¿½ï¿½ï¿½ï¿½{n_sell}ï¿½ï¿½ ï¿½ï¿½{n_buy}ï¿½ï¿½ | ï¿½ï¿½ï¿½{len(g.stops)}Ö»")
 
-        # ÉèÖÃuniverse±£³ÖÊµÅÌ³ÖÐøÔËÐÐ
+        # ï¿½ï¿½ï¿½ï¿½universeï¿½ï¿½ï¿½ï¿½Êµï¿½Ì³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         if g.stops:
             try:
                 codes = [code_to_qmt(c) for c in g.stops]
                 C.set_universe(codes)
-                print(f"  [U] universeÒÑ¶©ÔÄ")
+                print(f"  [U] universeï¿½Ñ¶ï¿½ï¿½ï¿½")
             except: pass
     else:
-        print(f"  [Ö¸Áî] ÎÞ¡ª¡ª½öÖ¹Ëð¼à¿ØÄ£Ê½")
+        print(f"  [Ö¸ï¿½ï¿½] ï¿½Þ¡ï¿½ï¿½ï¿½ï¿½ï¿½Ö¹ï¿½ï¿½ï¿½ï¿½Ä£Ê½")
 
-    # 3. ÔÂ¶Èµ÷²ÖÈÕÆÚ£¨D1=µÚÒ»ÖÜÖÜÒ», D2=µÚÒ»ÖÜÖÜÈý, D3=µÚÒ»ÖÜÖÜÎå£©
+    # 3. ï¿½Â¶Èµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú£ï¿½D1=ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½Ò», D2=ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, D3=ï¿½ï¿½Ò»ï¿½ï¿½ï¿½ï¿½ï¿½å£©
     now = datetime.now()
     cycle = now.strftime("%Y%m")
     d1, d2, d3 = get_month_trade_dates(C, now.year, now.month)
@@ -506,13 +511,13 @@ def init(C):
             d1 = state.get("d1_date", d1)
             d2 = state.get("d2_date", d2)
             d3 = state.get("d3_date", d3)
-        # else: ÐÂÔÂ£¬ÓÃ¸Õ¼ÆËãµÄÈÕÆÚ
+        # else: ï¿½ï¿½ï¿½Â£ï¿½ï¿½Ã¸Õ¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         saved_done = state.get("rebalance_done_date", "")
         today_str = now.strftime("%Y-%m-%d")
         if saved_done == today_str:
             g.rebalance_done_date = saved_done
             g.rebalance_phase = "verified"
-            print(f"  [·ÖÅú] ½ñÈÕµ÷²ÖÒÑÍê³É({saved_done})£¬Ìø¹ý½»Ò×")
+            print(f"  [ï¿½ï¿½ï¿½ï¿½] ï¿½ï¿½ï¿½Õµï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½({saved_done})ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½")
         else:
             g.rebalance_phase = ""
             g.expected_holdings = {}
@@ -521,27 +526,27 @@ def init(C):
     g.d2_date = d2
     g.d3_date = d3
 
-    # ==== ½Ú¼ÙÈÕÊÖ¶¯µ÷Õû£¨ÈçÓö½Ú¼ÙÈÕË³ÑÓÖÁÏÂÖÜÍ¬Ò»ÈÕ£©====
-    # Ê¾Àý£º2026Äê5ÔÂ 5/1ÀÍ¶¯½Ú¡úD3Ë³ÑÓÖÁ5/8
+    # ==== ï¿½Ú¼ï¿½ï¿½ï¿½ï¿½Ö¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ú¼ï¿½ï¿½ï¿½Ë³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í¬Ò»ï¿½Õ£ï¿½====
+    # Ê¾ï¿½ï¿½ï¿½ï¿½2026ï¿½ï¿½5ï¿½ï¿½ 5/1ï¿½Í¶ï¿½ï¿½Ú¡ï¿½D3Ë³ï¿½ï¿½ï¿½ï¿½5/8
     # if cycle == "202605":
     #     g.d3_date = "2026-05-08"
     # =================================================
 
-    print(f"  [µ÷²ÖÈÕ] D1={g.d1_date}(ÖÜÒ») D2={g.d2_date}(ÖÜÈý) D3={g.d3_date}(ÖÜÎå)")
+    print(f"  [ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½] D1={g.d1_date}(ï¿½ï¿½Ò») D2={g.d2_date}(ï¿½ï¿½ï¿½ï¿½) D3={g.d3_date}(ï¿½ï¿½ï¿½ï¿½)")
 
     C.run_time("on_stoploss", "5nSecond", "2020-01-01 09:31:00")
     C.run_time("on_rebalance", "60nSecond", "2020-01-01 09:45:00")
     C.run_time("on_monthly", "1nDay", "2020-01-01 00:01:00")
     C.run_time("on_order_check", "30nSecond", "2020-01-01 09:31:00")
 
-    # ±£´æµ½ÎÄ¼þ£¨ÐÂÔÂ»òÊ×´ÎÆô¶¯£©
+    # ï¿½ï¿½ï¿½æµ½ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Â»ï¿½ï¿½×´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     if state.get("cycle", "") != cycle:
         with open(batch_path, "w", encoding="utf-8") as f:
             json.dump({"cycle": cycle, "d1_date": d1, "d2_date": d2, "d3_date": d3}, f)
-        print(f"  [·ÖÅú] ÐÂÔÂÖÜÆÚ {cycle}")
+        print(f"  [ï¿½ï¿½ï¿½ï¿½] ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ {cycle}")
 
 def on_order_check(C):
-    """Ã¿30Ãë¼ì²éÎ´³É½»Î¯ÍÐ£¬³¬Ê±³·µ¥ÖØ±¨"""
+    """Ã¿30ï¿½ï¿½ï¿½ï¿½Î´ï¿½É½ï¿½Î¯ï¿½Ð£ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½ï¿½Ø±ï¿½"""
     if not g.pending_orders:
         return
     try:
@@ -552,18 +557,18 @@ def on_order_check(C):
     for o in orders:
         st = int(getattr(o, "m_nOrderStatus", 3))
         if st >= 3:
-            continue  # ÒÑ³É/ÒÑ³·£¬Ìø¹ý
+            continue  # ï¿½Ñ³ï¿½/ï¿½Ñ³ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         code = str(o.m_strInstrumentID) if hasattr(o, 'm_strInstrumentID') else ""
         vol = int(getattr(o, 'm_nVolumeTotalOriginal', 0))
         ref = str(getattr(o, 'm_strOrderRef', ""))
-        # ¼ì²éÊÇ·ñÊÇÎÒÃÇÌá½»µÄÎ¯ÍÐ
+        # ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½á½»ï¿½ï¿½Î¯ï¿½ï¿½
         for po in list(g.pending_orders):
             if po["code"] in code and po["qty"] == vol:
                 elapsed = (now - po["time"]).total_seconds()
                 if elapsed > 30:
                     try:
                         cancel(str(o.m_strOrderSysID), g.acct, g.acct_type, C)
-                        print(f"  [³·µ¥] {code} x{vol} ³¬Ê±{elapsed:.0f}s")
+                        print(f"  [ï¿½ï¿½ï¿½ï¿½] {code} x{vol} ï¿½ï¿½Ê±{elapsed:.0f}s")
                     except:
                         pass
                     g.pending_orders.remove(po)
@@ -612,13 +617,13 @@ def on_monthly(C):
             print("\n[new month] " + cycle + " D1=" + d1 + " D2=" + d2 + " D3=" + d3)
 
 def save_trade_report():
-    """±£´æ³É½»¼ÇÂ¼µ½ÎÄ¼þ£¬¹© Streamlit ¶ÁÈ¡"""
+    """ï¿½ï¿½ï¿½ï¿½É½ï¿½ï¿½ï¿½Â¼ï¿½ï¿½ï¿½Ä¼ï¿½ï¿½ï¿½ï¿½ï¿½ Streamlit ï¿½ï¿½È¡"""
     d = get_script_dir()
     path = os.path.join(d, "_trade_report.json")
     report = {
         "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "deals": g.deals[-500:],    # ×î½ü500±Ê³É½»
-        "orders": g.orders_log[-200:],  # ×î½ü200±ÊÎ¯ÍÐ
+        "deals": g.deals[-500:],    # ï¿½ï¿½ï¿½500ï¿½Ê³É½ï¿½
+        "orders": g.orders_log[-200:],  # ï¿½ï¿½ï¿½200ï¿½ï¿½Î¯ï¿½ï¿½
     }
     try:
         with open(path, "w", encoding="utf-8") as f:
@@ -627,19 +632,19 @@ def save_trade_report():
         pass
 
 def deal_callback(C, dealInfo):
-    """³É½»»Ø±¨£ºÃ¿±Ê³É½»Ê±QMT×Ô¶¯µ÷ÓÃ"""
+    """ï¿½É½ï¿½ï¿½Ø±ï¿½ï¿½ï¿½Ã¿ï¿½Ê³É½ï¿½Ê±QMTï¿½Ô¶ï¿½ï¿½ï¿½ï¿½ï¿½"""
     try:
         code = str(dealInfo.m_strInstrumentID) if hasattr(dealInfo, 'm_strInstrumentID') else ""
         vol = int(getattr(dealInfo, 'm_nVolume', 0))
         price = round(float(getattr(dealInfo, 'm_dPrice', 0)), 3)
         amount = round(float(getattr(dealInfo, 'm_dAmount', 0)), 2)
-        direction = "Âò" if getattr(dealInfo, 'm_nOrderType', 0) in (23, 27) else "Âô"
+        direction = "ï¿½ï¿½" if getattr(dealInfo, 'm_nOrderType', 0) in (23, 27) else "ï¿½ï¿½"
         d = {"time": datetime.now().strftime("%H:%M:%S"), "code": code,
              "direction": direction, "volume": vol, "price": price,
              "amount": amount, "order_id": str(getattr(dealInfo, 'm_strOrderRef', ''))}
         g.deals.append(d)
-        print(f"[³É½»] {d['time']} {d['direction']} {code} x{vol} @{price:.3f} ={amount:.2f}")
-        # °´Í¶×Ê±¸×¢ÒÆ³ýÒÑ³É½»Î¯ÍÐ
+        print(f"[ï¿½É½ï¿½] {d['time']} {d['direction']} {code} x{vol} @{price:.3f} ={amount:.2f}")
+        # ï¿½ï¿½Í¶ï¿½Ê±ï¿½×¢ï¿½Æ³ï¿½ï¿½Ñ³É½ï¿½Î¯ï¿½ï¿½
         remark = str(getattr(dealInfo, 'm_strRemark', ''))
         if remark and remark in g.pending_orders:
             del g.pending_orders[remark]
@@ -648,14 +653,14 @@ def deal_callback(C, dealInfo):
         print(f"[deal_callback err] {e}")
 
 def order_callback(C, orderInfo):
-    """Î¯ÍÐ»Ø±¨£ºÎ¯ÍÐ×´Ì¬±ä»¯Ê±QMT×Ô¶¯µ÷ÓÃ"""
+    """Î¯ï¿½Ð»Ø±ï¿½ï¿½ï¿½Î¯ï¿½ï¿½×´Ì¬ï¿½ä»¯Ê±QMTï¿½Ô¶ï¿½ï¿½ï¿½ï¿½ï¿½"""
     try:
-        status_map = {0: "Î´±¨", 1: "ÒÑ±¨", 2: "²¿³É", 3: "È«³É", 4: "²¿³·", 5: "È«³·", 6: "·Ïµ¥"}
+        status_map = {0: "Î´ï¿½ï¿½", 1: "ï¿½Ñ±ï¿½", 2: "ï¿½ï¿½ï¿½ï¿½", 3: "È«ï¿½ï¿½", 4: "ï¿½ï¿½ï¿½ï¿½", 5: "È«ï¿½ï¿½", 6: "ï¿½Ïµï¿½"}
         st = int(getattr(orderInfo, 'm_nOrderStatus', 0))
         o = {
             "time": datetime.now().strftime("%H:%M:%S"),
             "code": str(orderInfo.m_strInstrumentID) if hasattr(orderInfo, 'm_strInstrumentID') else "",
-            "direction": "Âò" if getattr(orderInfo, 'm_nOrderType', 0) in (23, 27) else "Âô",
+            "direction": "ï¿½ï¿½" if getattr(orderInfo, 'm_nOrderType', 0) in (23, 27) else "ï¿½ï¿½",
             "volume": int(getattr(orderInfo, 'm_nVolumeTotal', 0)),
             "filled": int(getattr(orderInfo, 'm_nVolumeTraded', 0)),
             "price": round(float(getattr(orderInfo, 'm_dPrice', 0)), 3),
@@ -664,13 +669,13 @@ def order_callback(C, orderInfo):
         }
         g.orders_log.append(o)
         if st >= 3:
-            print(f"[Î¯ÍÐ] {o['time']} {o['direction']} {o['code']} {o['volume']}¹É {o['status']}")
+            print(f"[Î¯ï¿½ï¿½] {o['time']} {o['direction']} {o['code']} {o['volume']}ï¿½ï¿½ {o['status']}")
         save_trade_report()
     except Exception as e:
         print(f"[order_callback err] {e}")
 
 def position_callback(C, positionInfo):
-    """³Ö²Ö±ä»¯Ö÷ÍÆ£º×Ô¶¯Ë¢ÐÂ³Ö²Ö»º´æ"""
+    """ï¿½Ö²Ö±ä»¯ï¿½ï¿½ï¿½Æ£ï¿½ï¿½Ô¶ï¿½Ë¢ï¿½Â³Ö²Ö»ï¿½ï¿½ï¿½"""
     try:
         code = str(getattr(positionInfo, 'm_strInstrumentID', ''))
         vol = int(getattr(positionInfo, 'm_nVolume', 0))
@@ -680,19 +685,19 @@ def position_callback(C, positionInfo):
 
 
 def account_callback(C, accountInfo):
-    """ÕË»§×´Ì¬»Øµ÷"""
+    """ï¿½Ë»ï¿½×´Ì¬ï¿½Øµï¿½"""
     try:
         status = str(getattr(accountInfo, 'm_strStatus', ''))
         if status:
-            print(f"[ÕË»§] {datetime.now().strftime('%H:%M:%S')} ×´Ì¬: {status}")
+            print(f"[ï¿½Ë»ï¿½] {datetime.now().strftime('%H:%M:%S')} ×´Ì¬: {status}")
     except:
         pass
 
 
 def orderError_callback(C, orderArgs, errMsg):
-    """ÏÂµ¥Òì³£Ö÷ÍÆ"""
+    """ï¿½Âµï¿½ï¿½ì³£ï¿½ï¿½ï¿½ï¿½"""
     try:
         code = str(getattr(orderArgs, 'm_strInstrumentID', '')) if hasattr(orderArgs, 'm_strInstrumentID') else ""
-        print(f"[ÏÂµ¥Òì³£] {code}: {errMsg}")
+        print(f"[ï¿½Âµï¿½ï¿½ì³£] {code}: {errMsg}")
     except:
         pass
