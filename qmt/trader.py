@@ -151,6 +151,7 @@ def run_stoploss(C):
     for code, info in list(g.stops.items()):
         if code in g.sold_codes: continue
         qmt_code = code_to_qmt(code)
+        if qmt_code not in g.holdings: continue  # 只监控实际持仓
         try:
             tick = C.get_full_tick([qmt_code])
             if not tick or qmt_code not in tick: continue
@@ -182,7 +183,7 @@ def run_stoploss(C):
         except Exception as e:
             pass  # ��Ĭ������ֻ����
 
-    active = len(g.stops) - len(g.sold_codes)
+    active = sum(1 for c in g.stops if c not in g.sold_codes and code_to_qmt(c) in g.holdings)
     if now.minute % 5 == 0:
         print(f"[{time_str}] ���{active}ֻ | �Ѵ���{len(g.sold_codes)}ֻ")
 
