@@ -778,7 +778,7 @@ class PortfolioAgent:
             portfolio.update(selected)
 
         # 风险控制（含关键词去重 + 残差相关性去重）
-        portfolio, _ = self._apply_risk_controls(portfolio, curr_date)
+        portfolio, risk_warnings = self._apply_risk_controls(portfolio, curr_date)
 
         # 资产类别平滑：限制单次调仓的类别偏移（防换手）
         prev_class = getattr(self, '_prev_class_weights', None)
@@ -824,12 +824,40 @@ class PortfolioAgent:
         for code, info in portfolio.items():
             self._prev_class_weights[info["type"]] += info["weight"]
 
+        reasoning = self._build_reasoning(macro_analysis, portfolio)
+        risk_check = "通过" if not risk_warnings else "警告: " + "; ".join(risk_warnings)
+
         return {
             "cycle_phase": cycle,
             "confidence": confidence,
             "portfolio": portfolio,
-            "decision_date": macro_analysis.get("metadata", {}).get("input_date", "")
+            "decision_date": macro_analysis.get("metadata", {}).get("input_date", ""),
+            "reasoning": reasoning,
+            "risk_check": risk_check,
+            "risk_warnings": risk_warnings
         }
+
+    def _build_reasoning(self, macro_analysis: dict, portfolio: dict) -> str:
+        """构建决策理由文本"""
+        lines = []
+        lines.append("【宏观研判】")
+        lines.append(macro_analysis.get("analysis", ""))
+        lines.append("")
+        lines.append(f"【周期判断】{macro_analysis['cycle_phase']} (置信度: {macro_analysis['confidence']:.0%})")
+        lines.append("")
+        lines.append("【配置逻辑】")
+        lines.append(macro_analysis.get("investment_implication", ""))
+        lines.append("")
+        risk_factors = macro_analysis.get("risk_factors", [])
+        if risk_factors:
+            lines.append("【风险提示】")
+            for risk in risk_factors:
+                lines.append(f"- {risk}")
+            lines.append("")
+        lines.append("【最终组合】")
+        for code, pos in sorted(portfolio.items(), key=lambda x: x[1]["weight"], reverse=True):
+            lines.append(f"  {code} ({pos['name']}): {pos['weight']:.2%}")
+        return "\n".join(lines)
 
     def _dedup_correlation(self, portfolio: dict, curr_date: str) -> dict:
         """残差相关性去重：仅股票类内，22日滚动，阈值0.95，至少保留3只"""
@@ -909,6 +937,12 @@ class PortfolioAgent:
         """应用风险控制：关键词去重 + 残差相关性去重 + 比例钳制"""
         warnings_list = []
 
+        # 先归一化（_select_etfs 各分类独立分配，总和可能≠1.0）
+        total = sum(p["weight"] for p in portfolio.values())
+        if total > 0 and abs(total - 1.0) > 0.001:
+            for p in portfolio.values():
+                p["weight"] = p["weight"] / total
+
         # 兜底去重：同指数/同关键词的ETF只保留一个（合并权重到最高分者）
         by_tag = {}
         for code, p in list(portfolio.items()):
@@ -931,18 +965,31 @@ class PortfolioAgent:
 
         stock_ratio = sum(p["weight"] for p in portfolio.values() if p["type"] == "Stock")
         gold_ratio = sum(p["weight"] for p in portfolio.values() if p["type"] == "Commodity")
+        bond_codes = [c for c, p in portfolio.items() if p["type"] == "Bond"]
+        stock_codes = [c for c, p in portfolio.items() if p["type"] == "Stock"]
 
         if stock_ratio > self.CONSTRAINTS["max_stock_ratio"]:
             scale = self.CONSTRAINTS["max_stock_ratio"] / stock_ratio
             for p in portfolio.values():
                 if p["type"] == "Stock":
                     p["weight"] *= scale
+            warnings_list.append(f"股票占比超限({stock_ratio:.1%})，已缩至{self.CONSTRAINTS['max_stock_ratio']:.0%}")
+
+        elif stock_ratio < self.CONSTRAINTS["min_stock_ratio"] and bond_codes:
+            deficit = self.CONSTRAINTS["min_stock_ratio"] - stock_ratio
+            per_bond = deficit / len(bond_codes)
+            for c in bond_codes:
+                portfolio[c]["weight"] = max(0.01, portfolio[c]["weight"] - per_bond)
+            for c in stock_codes:
+                portfolio[c]["weight"] += deficit / len(stock_codes)
+            warnings_list.append(f"股票占比不足({stock_ratio:.1%})，从债券补足至{self.CONSTRAINTS['min_stock_ratio']:.0%}")
 
         if gold_ratio > self.CONSTRAINTS["max_gold_ratio"]:
             scale = self.CONSTRAINTS["max_gold_ratio"] / gold_ratio
             for p in portfolio.values():
                 if p["type"] == "Commodity":
                     p["weight"] *= scale
+            warnings_list.append(f"黄金占比超限({gold_ratio:.1%})，已缩至{self.CONSTRAINTS['max_gold_ratio']:.0%}")
 
         # 归一化
         total = sum(p["weight"] for p in portfolio.values())
