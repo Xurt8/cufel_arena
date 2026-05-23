@@ -760,7 +760,9 @@ class PortfolioAgent:
         "滞胀期": {"gold": 0.30, "bond": 0.15, "stock_core": 0.10, "stock_sat": 0.10, "cash": 0.35},
         "衰退期": {"gold": 0.10, "bond": 0.50, "stock_core": 0.10, "stock_sat": 0.10, "cash": 0.20},
     }
-    CORE_STOCKS = {"510300": "沪深300", "510500": "中证500"}
+    CORE_STOCKS = {"563220": "A500ETF"}  # 实盘持仓宽基
+    GOLD_ETF = "518860"   # 实盘持仓黄金
+    BOND_ETF = "511010"   # 实盘持仓国债
     SATELLITE_N = 4
 
     def _get_ma200_cache(self, codes: list, target_date: str) -> dict:
@@ -803,13 +805,11 @@ class PortfolioAgent:
         portfolio = {}
 
         # --- Gold: fixed ETF ---
-        GOLD_ETF = "518880"
-        portfolio[GOLD_ETF] = {"name": "黄金ETF", "type": "Commodity", "weight": alloc["gold"]}
+        portfolio[self.GOLD_ETF] = {"name": "黄金ETF", "type": "Commodity", "weight": alloc["gold"]}
 
         # --- Bond: fixed ETF + cash ---
-        BOND_ETF = "511010"
-        portfolio[BOND_ETF] = {"name": "国债ETF", "type": "Bond",
-                                "weight": alloc["bond"] + alloc.get("cash", 0)}
+        portfolio[self.BOND_ETF] = {"name": "国债ETF", "type": "Bond",
+                                     "weight": alloc["bond"] + alloc.get("cash", 0)}
 
         # --- Trend gate MA lookup ---
         above_ma = set()
@@ -830,7 +830,7 @@ class PortfolioAgent:
                 portfolio[c] = {"name": self.CORE_STOCKS[c], "type": "Stock",
                                 "weight": per_core}
         elif alloc["stock_core"] > 0:
-            portfolio[BOND_ETF]["weight"] += alloc["stock_core"]
+            portfolio[self.BOND_ETF]["weight"] += alloc["stock_core"]
 
         # --- Stock Satellite: trend gate + percentile ranking ---
         raw_data = []
@@ -863,7 +863,7 @@ class PortfolioAgent:
                 portfolio[code] = {"name": name, "type": "Stock", "weight": w}
         elif alloc["stock_sat"] > 0:
             # Fallback: satellite allocation to bonds
-            portfolio[BOND_ETF]["weight"] += alloc["stock_sat"]
+            portfolio[self.BOND_ETF]["weight"] += alloc["stock_sat"]
 
         # Merge duplicate codes (BOND_ETF may have multiple entries)
         merged = {}
