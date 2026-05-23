@@ -75,25 +75,15 @@ def get_script_dir():
     return os.getcwd()
 
 def load_orders_file():
-
-    """, , """
-
+    """Load orders JSON from QMT python directory"""
     import os, json
-
-    path = os.path.join(os.getcwd(), "qmt_orders_latest.json")
-
+    path = "D:长城策略交易系统\python\qmt_orders_latest.json"
     if not os.path.exists(path):
-
-        path = r"D:\\python\qmt_orders_latest.json"
-
+        path = os.path.join(os.getcwd(), "qmt_orders_latest.json")
     if os.path.exists(path):
-
         with open(path, "r", encoding="utf-8") as f:
-
             return json.load(f)
-
-    print(f"[ERROR] not found: {path}")
-
+    print(f"[ERROR] orders file not found")
     return None
 
 def code_to_qmt(code):
@@ -795,7 +785,7 @@ def init(C):
 
     else:
 
-        print(f"  [] ")
+        print(f"  [Holdings] no positions")
 
     #  Streamlit 
 
@@ -911,7 +901,7 @@ def init(C):
 
     else:
 
-        print(f"  [] ")
+        print(f"  [Orders] none, stoploss-only mode")
 
     # 3. D1=, D2=, D3=
 
