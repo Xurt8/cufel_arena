@@ -168,64 +168,31 @@ ETF_NAMES = {
     "512880": "证券ETF", "516160": "新能源",
 }
 
-# ── ClickHouse 连接（quantchdb） ──────────────────────
-CH_HOST = os.getenv("CHDB_HOST", "10.13.66.5")
-CH_PORT = int(os.getenv("CHDB_PORT", "20107"))
-CH_USER = os.getenv("CHDB_USER", "cufel_arena_etf_reader")
-CH_PASSWORD = os.getenv("CHDB_PASSWORD", "cufel_arena_etf_404")
-CH_DATABASE = os.getenv("CHDB_DATABASE", "etf")
-
-CH_CONFIG = {"host": CH_HOST, "port": CH_PORT, "user": CH_USER,
-             "password": CH_PASSWORD, "database": CH_DATABASE}
-
-def _ch_fetch(sql: str):
-    """安全查询 ClickHouse"""
-    from quantchdb import ClickHouseDatabase
-    with ClickHouseDatabase(config=CH_CONFIG, terminal_log=False) as db:
-        return db.fetch(sql)
-
-def _ch_execute_rows(sql: str):
-    """执行并返回原始行列表"""
-    from quantchdb import ClickHouseDatabase
-    with ClickHouseDatabase(config=CH_CONFIG, terminal_log=False) as db:
-        return db.fetch(sql).values.tolist()
-
 @st.cache_data(ttl=300)
 def fetch_live_prices(codes: list, target_date: str) -> dict:
-    codes_str = ",".join(f"'{c}'" for c in codes)
-    sql = f"""
-        SELECT code, close, pre_close, pct_chg
-        FROM etf.etf_day
-        WHERE code IN ({codes_str}) AND date <= '{target_date}'
-        ORDER BY date DESC
-        LIMIT 1 BY code
-    """
-    df = _ch_fetch(sql)
-    if df.empty: return {}
-    return {r["code"]: {"close": r["close"], "pre_close": r["pre_close"], "pct_chg": r["pct_chg"]}
-            for _, r in df.iterrows()}
+    """从本地 parquet 获取最新价格"""
+    from src.data.local_store import get_latest_close
+    prices = get_latest_close(codes)
+    if not prices: return {}
+    return {c: {"close": p, "pre_close": p, "pct_chg": 0} for c, p in prices.items()}
 
 @st.cache_data(ttl=3600)
 def fetch_etf_prices(codes: list, start: str, end: str) -> pd.DataFrame:
-    codes_str = ",".join(f"'{c}'" for c in codes)
-    sql = f"""
-        SELECT date, code, close, adj_factor
-        FROM etf.etf_day
-        WHERE code IN ({codes_str}) AND date BETWEEN '{start}' AND '{end}'
-        ORDER BY date, code
-    """
-    df = _ch_fetch(sql)
-    if df.empty: return df
-    df["date"] = pd.to_datetime(df["date"])
-    df["close_adj"] = df["close"] * df["adj_factor"]
-    return df
+    """从本地 parquet 加载价格数据"""
+    pdf = pd.read_parquet("data/etf_daily.parquet")
+    sub = pdf[(pdf["date"] >= start) & (pdf["date"] <= end) & (pdf["code"].isin(codes))]
+    if sub.empty: return sub
+    sub = sub[["date", "code", "close"]].copy()
+    sub["close_adj"] = sub["close"]
+    sub["date"] = pd.to_datetime(sub["date"])
+    return sub
 
 @st.cache_data(ttl=3600)
-@st.cache_data(ttl=3600)
 def fetch_date_range():
-    df = _ch_fetch("SELECT min(date) as mi, max(date) as ma FROM etf.etf_day")
+    """从本地 parquet 获取日期范围"""
+    df = pd.read_parquet("data/etf_daily.parquet", columns=["date"])
     if df.empty: return None, None
-    return pd.to_datetime(df["mi"].iloc[0]).date(), pd.to_datetime(df["ma"].iloc[0]).date()
+    return df["date"].min().date(), df["date"].max().date()
 
 # ── Agent 初始化 ───────────────────────────────────────
 TRAIL_PROFIT = {
@@ -417,16 +384,7 @@ def llm_analyze_macro(pmi, cpi, ppi, m2, sf, gdp, s1m, s3m) -> dict:
 
 # ── TDA 舆情指标（占位，nlp 库授权后启用）───────────
 def fetch_tda_sentiment(date_str: str) -> dict:
-    """从 nlp 库获取 TDA 舆情分歧度指标"""
-    try:
-        sql = f"""SELECT h1_count, h1_size, h2_count, h2_size
-        FROM nlp.zong_TDA WHERE date = '{date_str}'"""
-        df = _ch_fetch(sql)
-        if not df.empty:
-            return {"h1_count": df["h1_count"].iloc[0], "h1_size": df["h1_size"].iloc[0],
-                    "h2_count": df["h2_count"].iloc[0], "h2_size": df["h2_size"].iloc[0]}
-    except Exception:
-        pass
+    """TDA 舆情指标（nlp 库授权后启用）"""
     return {}
 
 
@@ -1446,4 +1404,4 @@ with tab_backtest:
         st.info("👈 在侧边栏设置回测参数后，点击「运行回测」")
 
 st.divider()
-st.caption(f"数据来源: ClickHouse {CH_HOST}:{CH_PORT} | etf.etf_day ({min_date} ~ {max_date}) | 实时行情: 新浪财经")
+st.caption(f"数据来源: 本地 parquet | etf_daily ({min_date} ~ {max_date}) | 实时行情: 新浪财经")
