@@ -272,7 +272,7 @@ def build_dynamic_universe() -> dict:
 
 @st.cache_resource
 def init_agent():
-    agent = MacroDrivenETFAgent(use_llm=True)
+    agent = MacroDrivenETFAgent(use_llm=False)  # 统一用规则, 和回测引擎一致
     uni = build_dynamic_universe()
     if uni and uni.get("Stock"): agent.set_etf_universe(uni)
     return agent
