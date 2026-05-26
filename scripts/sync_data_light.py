@@ -1,10 +1,15 @@
 """轻量数据同步 — 纯 xtdata，无 pandas 依赖，用 QMT Python 3.6 执行"""
-import sys, os, json
+import sys, os, json, traceback
+from datetime import datetime, timedelta
+
 sys.path.insert(0, r'D:\长城策略交易系统\bin.x64\Lib\site-packages')
 from xtquant import xtdata
-from datetime import datetime
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+# QMT exec() 环境没有 __file__，用 os.getcwd() 回退
+try:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+except NameError:
+    DATA_DIR = os.path.join(os.getcwd(), "data")
 
 def sync_sectors():
     """同步板块分类"""
@@ -45,9 +50,10 @@ def sync_etf_daily():
     codes = list(names.keys())
     print(f'  ETFs: {len(codes)}')
 
-    # Download last 7 days
-    end = datetime.now().strftime('%Y%m%d')
-    start = (datetime.now().replace(day=datetime.now().day-7)).strftime('%Y%m%d')
+    # Download last 10 trading days
+    now = datetime.now()
+    end = now.strftime('%Y%m%d')
+    start = (now - timedelta(days=10)).strftime('%Y%m%d')
     print(f'  Range: {start} ~ {end}')
 
     rows = []
@@ -66,7 +72,8 @@ def sync_etf_daily():
                         d = str(idx)[:10].replace('-','')
                         seen_dates.add(d)
                         rows.append(f"{c},{d},{df.loc[idx,'close']},{df.loc[idx,'high']},{df.loc[idx,'low']},{df.loc[idx,'open']},{df.loc[idx,'volume']}")
-        except: pass
+        except Exception as e:
+            print(f'    batch {i}: {e}')
         if i % 500 == 0:
             print(f'    {min(i+50,len(codes))}/{len(codes)}: {len(rows)} rows, dates={sorted(seen_dates)}')
 
