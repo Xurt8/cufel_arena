@@ -85,8 +85,26 @@ def sync_etf_daily():
     return True
 
 if __name__ == '__main__':
-    print(f"Sync start: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    sync_sectors()
-    sync_names()
-    sync_etf_daily()
-    print("Sync done")
+    try:
+        log_path = os.path.join(DATA_DIR, '..', 'cache', 'sync_log.txt')
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, 'w', encoding='utf-8') as log:
+            log.write(f"Sync start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            try:
+                sync_sectors()
+                log.write("sectors OK\n")
+            except Exception as e:
+                log.write(f"sectors FAIL: {e}\n{traceback.format_exc()}\n")
+            try:
+                sync_names()
+                log.write("names OK\n")
+            except Exception as e:
+                log.write(f"names FAIL: {e}\n{traceback.format_exc()}\n")
+            try:
+                sync_etf_daily()
+                log.write("etf_daily OK\n")
+            except Exception as e:
+                log.write(f"etf_daily FAIL: {e}\n{traceback.format_exc()}\n")
+            log.write(f"Sync done: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    except Exception as e:
+        pass
