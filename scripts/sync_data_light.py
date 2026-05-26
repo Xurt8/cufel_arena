@@ -50,10 +50,10 @@ def sync_etf_daily():
     codes = list(names.keys())
     print(f'  ETFs: {len(codes)}')
 
-    # Download last 10 trading days
+    # Download last 3 calendar days
     now = datetime.now()
     end = now.strftime('%Y%m%d')
-    start = (now - timedelta(days=10)).strftime('%Y%m%d')
+    start = (now - timedelta(days=3)).strftime('%Y%m%d')
     print(f'  Range: {start} ~ {end}')
 
     rows = []
@@ -74,8 +74,8 @@ def sync_etf_daily():
                         rows.append(f"{c},{d},{df.loc[idx,'close']},{df.loc[idx,'high']},{df.loc[idx,'low']},{df.loc[idx,'open']},{df.loc[idx,'volume']}")
         except Exception as e:
             print(f'    batch {i}: {e}')
-        if i % 500 == 0:
-            print(f'    {min(i+50,len(codes))}/{len(codes)}: {len(rows)} rows, dates={sorted(seen_dates)}')
+        if i % 200 == 0 or i >= len(codes) - 50:
+            print(f'    {min(i+50,len(codes))}/{len(codes)}: {len(rows)} rows')
 
     csv_path = os.path.join(DATA_DIR, '_sync_pending.csv')
     with open(csv_path, 'w') as f:
