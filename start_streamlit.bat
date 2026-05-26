@@ -6,7 +6,7 @@ python scripts\update_macro.py
 
 echo [Data] Starting MiniQMT...
 start "" "D:\长城策略交易系统\bin.x64\XtMiniQmt.exe"
-timeout /t 8 /nobreak >nul
+timeout /t 20 /nobreak >nul
 
 echo [Data] Daily ETF update...
 D:\长城策略交易系统\bin.x64\pythonw.exe scripts\sync_data_light.py

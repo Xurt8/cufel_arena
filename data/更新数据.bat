@@ -13,7 +13,8 @@ if errorlevel 1 (
 echo.
 echo [2/4] 启动 MiniQMT...
 start "" "D:\长城策略交易系统\bin.x64\XtMiniQmt.exe"
-timeout /t 10 /nobreak >nul
+echo   等待 MiniQMT 启动...
+timeout /t 20 /nobreak >nul
 echo.
 echo [3/4] ETF 数据同步 (MiniQMT)...
 "D:\长城策略交易系统\bin.x64\pythonw.exe" scripts\sync_data_light.py
