@@ -86,6 +86,8 @@ def sync_etf_daily():
 
 if __name__ == '__main__':
     try:
+        # Download sector data first (required before get_stock_list_in_sector)
+        xtdata.download_sector_data()
         log_path = os.path.join(DATA_DIR, '..', 'cache', 'sync_log.txt')
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, 'w', encoding='utf-8') as log:
