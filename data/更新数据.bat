@@ -17,7 +17,7 @@ echo   等待 MiniQMT 启动...
 timeout /t 20 /nobreak >nul
 echo.
 echo [3/4] ETF 数据同步 (MiniQMT)...
-"D:\长城策略交易系统\bin.x64\pythonw.exe" scripts\sync_data_light.py
+"D:\长城策略交易系统\bin.x64\pythonw.exe" "c:\Users\xrt85\Desktop\3月22日课程资料\cufel_arena\scripts\sync_data_light.py"
 if errorlevel 1 (
     echo [WARNING] ETF 同步失败，检查 MiniQMT 是否运行
 )
