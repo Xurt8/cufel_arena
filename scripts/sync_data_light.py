@@ -85,12 +85,11 @@ def sync_etf_daily():
     return True
 
 if __name__ == '__main__':
-    try:
-        # Download sector data first (required before get_stock_list_in_sector)
-        xtdata.download_sector_data()
-        log_path = os.path.join(DATA_DIR, '..', 'cache', 'sync_log.txt')
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        with open(log_path, 'w', encoding='utf-8') as log:
+    log_path = r'D:\sync_log.txt'
+    with open(log_path, 'w', encoding='utf-8') as log:
+        try:
+            # Download sector data first
+            xtdata.download_sector_data()
             log.write(f"Sync start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             try:
                 sync_sectors()
@@ -108,5 +107,5 @@ if __name__ == '__main__':
             except Exception as e:
                 log.write(f"etf_daily FAIL: {e}\n{traceback.format_exc()}\n")
             log.write(f"Sync done: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    except Exception as e:
-        pass
+        except Exception as e:
+            log.write(f"FATAL: {e}\n{traceback.format_exc()}\n")
