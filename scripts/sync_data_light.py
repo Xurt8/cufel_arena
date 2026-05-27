@@ -84,7 +84,9 @@ def sync_etf_daily():
 if __name__ == '__main__':
     log_path = r'D:\sync_log.txt'
     with open(log_path, 'w', encoding='utf-8') as log:
-        log.write(f"Sync start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} (daily only)\n")
+        log.write(f"Sync start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        try: xtdata.download_sector_data(); log.write('sector_cache OK\n')
+        except Exception as e: log.write(f'sector_cache skip: {e}\n')
         log.flush()
         try:
             sync_etf_daily()
