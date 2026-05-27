@@ -43,23 +43,21 @@ def sync_names():
     return True
 
 def sync_etf_daily():
-    """增量同步ETF日线 → CSV"""
+    """增量同步ETF日线 → CSV, 使用已有 names 不查询板块"""
     names_path = os.path.join(DATA_DIR, 'etf_names.json')
-    with open(names_path, 'r', encoding='utf-8') as f:
+    with open(names_path, 'r', encoding='utf-8', errors='replace') as f:
         names = json.load(f)
     codes = list(names.keys())
     print(f'  ETFs: {len(codes)}')
 
-    # Download last 3 calendar days
     now = datetime.now()
     end = now.strftime('%Y%m%d')
-    start = (now - timedelta(days=3)).strftime('%Y%m%d')
+    start = (now - timedelta(days=4)).strftime('%Y%m%d')
     print(f'  Range: {start} ~ {end}')
 
     rows = []
-    seen_dates = set()
-    for i in range(0, len(codes), 50):
-        batch = codes[i:i+50]
+    for i in range(0, len(codes), 100):
+        batch = codes[i:i+100]
         qb = [f'{c}.SH' if c.startswith(('5','6','51','56','58','59')) else f'{c}.SZ' for c in batch]
         try:
             xtdata.download_history_data2(qb, '1d', start, end)
@@ -70,18 +68,17 @@ def sync_etf_daily():
                     df = raw[qc]; c = qc.split('.')[0]
                     for idx in df.index:
                         d = str(idx)[:10].replace('-','')
-                        seen_dates.add(d)
                         rows.append(f"{c},{d},{df.loc[idx,'close']},{df.loc[idx,'high']},{df.loc[idx,'low']},{df.loc[idx,'open']},{df.loc[idx,'volume']}")
         except Exception as e:
             print(f'    batch {i}: {e}')
-        if i % 200 == 0 or i >= len(codes) - 50:
-            print(f'    {min(i+50,len(codes))}/{len(codes)}: {len(rows)} rows')
+        if i % 200 == 0:
+            print(f'    {min(i+100,len(codes))}/{len(codes)}: {len(rows)} rows')
 
     csv_path = os.path.join(DATA_DIR, '_sync_pending.csv')
     with open(csv_path, 'w') as f:
         f.write("code,date,close,high,low,open,volume\n")
         f.write("\n".join(rows))
-    print(f'  Saved: {len(rows)} rows, dates={sorted(seen_dates)}')
+    print(f'  Saved: {len(rows)} rows')
     return True
 
 if __name__ == '__main__':
