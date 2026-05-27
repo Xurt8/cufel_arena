@@ -46,3 +46,4 @@ Thumbs.db
 data/etf_daily.parquet
 data/_sync_pending.csv
 data/_old_data.csv
+config/arena.env
