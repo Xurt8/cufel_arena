@@ -43,7 +43,7 @@ def sync_names():
     return True
 
 def sync_etf_daily():
-    """增量同步ETF日线 → CSV, 使用已有 names 不查询板块"""
+    """增量同步ETF日线 → CSV, 批量下载全量ETF"""
     names_path = os.path.join(DATA_DIR, 'etf_names.json')
     with open(names_path, 'r', encoding='utf-8', errors='replace') as f:
         names = json.load(f)
@@ -55,24 +55,19 @@ def sync_etf_daily():
     start = (now - timedelta(days=4)).strftime('%Y%m%d')
     print(f'  Range: {start} ~ {end}')
 
+    # Convert to QMT codes and download ALL at once
+    qmt_codes = [f'{c}.SH' if c.startswith(('5','6','51','56','58','59')) else f'{c}.SZ' for c in codes]
+    xtdata.download_history_data2(qmt_codes, '1d', start, end)
+    raw = xtdata.get_market_data_ex(['close','high','low','open','volume','amount'],
+                                    qmt_codes, '1d', start, end)
+
     rows = []
-    for i in range(0, len(codes), 100):
-        batch = codes[i:i+100]
-        qb = [f'{c}.SH' if c.startswith(('5','6','51','56','58','59')) else f'{c}.SZ' for c in batch]
-        try:
-            xtdata.download_history_data2(qb, '1d', start, end)
-            raw = xtdata.get_market_data_ex(['close','high','low','open','volume','amount'],
-                                            qb, '1d', start, end)
-            for qc in qb:
-                if qc in raw and raw[qc] is not None and len(raw[qc]) >= 1:
-                    df = raw[qc]; c = qc.split('.')[0]
-                    for idx in df.index:
-                        d = str(idx)[:10].replace('-','')
-                        rows.append(f"{c},{d},{df.loc[idx,'close']},{df.loc[idx,'high']},{df.loc[idx,'low']},{df.loc[idx,'open']},{df.loc[idx,'volume']}")
-        except Exception as e:
-            print(f'    batch {i}: {e}')
-        if i % 200 == 0:
-            print(f'    {min(i+100,len(codes))}/{len(codes)}: {len(rows)} rows')
+    for qc in qmt_codes:
+        if qc in raw and raw[qc] is not None and len(raw[qc]) >= 1:
+            df = raw[qc]; c = qc.split('.')[0]
+            for idx in df.index:
+                d = str(idx)[:10].replace('-','')
+                rows.append(f"{c},{d},{df.loc[idx,'close']},{df.loc[idx,'high']},{df.loc[idx,'low']},{df.loc[idx,'open']},{df.loc[idx,'volume']}")
 
     csv_path = os.path.join(DATA_DIR, '_sync_pending.csv')
     with open(csv_path, 'w') as f:
