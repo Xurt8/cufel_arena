@@ -798,6 +798,37 @@ class PortfolioAgent:
         rf = rf.sort_values("score", ascending=False)
         return [(r["code"], r["score"]) for _, r in rf.iterrows()]
 
+    def _llm_dedup_check(self, selected: list) -> list:
+        """用 LLM 检查卫星 ETF 是否重复，返回去重后的列表"""
+        import requests
+        try:
+            names_list = "\n".join(f"- {name} ({code})" for code, _, name in selected)
+            prompt = f"""以下4只ETF将作为投资组合的卫星仓位，请检查是否存在重复。
+重复指两只ETF跟踪高度相似的指数、或属于同一细分行业(如双创50/科创50/半导体)。
+只回复JSON，不要多余文字：
+{{"duplicates": [{{"keep": "代码1", "remove": "代码2", "reason": "原因"}}]}}
+如果没有重复，回复 {{"duplicates": []}}
+
+候选ETF:
+{names_list}"""
+            r = requests.post(
+                os.getenv("LLM_API_BASE", "https://api.deepseek.com/v1") + "/chat/completions",
+                headers={"Authorization": f"Bearer {os.getenv('LLM_API_KEY', '')}",
+                         "Content-Type": "application/json"},
+                json={"model": "deepseek-chat",
+                      "messages": [{"role":"user","content":prompt}],
+                      "max_tokens": 200, "temperature": 0.1},
+                timeout=10)
+            if r.status_code == 200:
+                resp = r.json()["choices"][0]["message"]["content"]
+                import json as _json
+                result = _json.loads(resp) if resp.strip().startswith("{") else {"duplicates": []}
+                remove_codes = {d["remove"] for d in result.get("duplicates", [])}
+                return [(c, s, n) for c, s, n in selected if c not in remove_codes]
+        except Exception:
+            pass
+        return selected
+
     def decide(self, macro_analysis: dict, etf_scores: dict = None,
                etf_universe: dict = None,
                current_codes: set = None, curr_date: str = None) -> dict:
@@ -862,6 +893,9 @@ class PortfolioAgent:
             seen_tags.add(tag)
             selected.append((code, score, name))
             if len(selected) >= self.SATELLITE_N: break
+        # LLM 去重检查
+        if len(selected) >= 2:
+            selected = self._llm_dedup_check(selected)
         if selected:
             total_s = sum(s for _, s, _ in selected)
             for code, score, name in selected:
